@@ -1,0 +1,24 @@
+name: Bug report
+description: Something the tape gets wrong
+title: "[bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what the chain (or robinhoodtrenches.com) says instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Transaction hash, window, or steps. A receipt fixture is the fastest path to a fix.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit hash, or fomopulse.app.

@@ -1,0 +1,12 @@
+{
+  "name": "@fomopulse/server",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "hono": "^4.13.5",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}

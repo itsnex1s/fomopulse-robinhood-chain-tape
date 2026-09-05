@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "fomopulse",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // The built web app, served from the colo the reader is in. `/api/*` and `/ws` are the
+  // Worker's, whatever happens to be sitting in the assets directory.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/ws"]
+  },
+
+  // The site itself, and the one line in this repository that names a domain: put your own
+  // here, or delete the whole entry and take the workers.dev address the deploy prints. A
+  // custom domain puts the Worker behind the zone, where the managed ruleset, the rate
+  // limit and the bot rules live; a workers.dev address has none of them.
+  "routes": [{ "pattern": "fomopulse.app", "custom_domain": true }],
+
+  // One object holds the tape: the subscription, the SQLite and the readers watching it.
+  "durable_objects": {
+    "bindings": [{ "name": "TAPE", "class_name": "Tape" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tape"] }],
+
+  // The object keeps itself awake with an alarm; this is the spare key.
+  "triggers": { "crons": ["* * * * *"] },
+
+  // The tape's queries are written against bun:sqlite; on this platform they run on the
+  // SQLite the object carries. See src/sqlite.ts.
+  "alias": { "bun:sqlite": "./src/sqlite.ts" }
+}

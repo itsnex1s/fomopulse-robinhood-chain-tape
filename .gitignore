@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+# wrangler hands these to `wrangler dev`; the deployed secrets live in Cloudflare.
+.dev.vars
+.dev.vars.*
+apps/worker/.wrangler/
+*.db
+*.db-wal
+*.db-shm
+.firecrawl/
+.DS_Store
+.commandcode/

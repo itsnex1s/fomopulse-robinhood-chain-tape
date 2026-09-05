@@ -1,0 +1,14 @@
+.git
+node_modules
+**/node_modules
+dist
+apps/web/dist
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+.github
+.commandcode
+.DS_Store

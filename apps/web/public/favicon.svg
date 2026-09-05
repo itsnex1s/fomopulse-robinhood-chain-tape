@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="fomopulse">
+  <rect width="64" height="64" rx="14" fill="#0a0d10"/>
+  <rect x="11" y="16" width="42" height="7" rx="2" fill="#2fd08a"/>
+  <rect x="11" y="28" width="25" height="7" rx="2" fill="#ff5470"/>
+  <rect x="11" y="40" width="34" height="7" rx="2" fill="#f0b429"/>
+</svg>

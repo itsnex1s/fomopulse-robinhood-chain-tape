@@ -1,0 +1,37 @@
+{
+  "name": "fomopulse",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live tape of what tracked wallets buy and sell on-chain. First target: fomo.family traders on Robinhood Chain.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsnex1s/fomopulse-robinhood-chain-tape"
+  },
+  "engines": {
+    "bun": ">=1.2.9"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "ingest": "bun run apps/server/src/index.ts",
+    "web": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json && tsc -p apps/worker/tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check": "bun run lint && bun run typecheck && bun test && bun run build",
+    "verify": "bun run scripts/verify-tape.ts",
+    "rebuild": "bun run scripts/rebuild.ts",
+    "roster": "bun run scripts/roster.ts",
+    "assets": "bun run scripts/assets.ts",
+    "cf:dev": "bun run build && bun run --cwd apps/worker dev",
+    "cf:deploy": "bun run build && bun run --cwd apps/worker deploy",
+    "enrich": "bun run scripts/enrich.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12"
+  }
+}

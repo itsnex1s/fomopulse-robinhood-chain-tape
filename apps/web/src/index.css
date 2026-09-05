@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+/**
+ * Palette: slate ink instead of pure black, amber as the single accent, teal-green
+ * and rose for direction. Deliberately not the neon green + cyan on black of
+ * robinhoodtrenches — closer to how Hyperliquid and Bloomberg terminals separate
+ * chrome (grey, sans) from data (mono, coloured only where direction matters).
+ */
+@theme {
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-bg: #0a0d10;
+  --color-panel: #0e1217;
+  --color-line: #191f27;
+  --color-hover: #131920;
+  --color-fg: #c8d0da;
+  --color-dim: #7b8794;
+  --color-dimmer: #48525d;
+
+  --color-up: #2fd08a;
+  --color-down: #ff5470;
+  --color-accent: #f0b429;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* A phone's toolbars come and go: 100% of the window would leave the last row of the
+   tape under them, and dvh is the height the page can actually use. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
+body {
+  margin: 0;
+  /* A tape scrolls down. Nothing is ever meant to be found sideways. */
+  overflow-x: hidden;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The size bar sits behind the usd cell: width is log-scaled, so $500 and $50k both read. */
+.size-bar {
+  background-image: linear-gradient(to left, var(--tint) 0 var(--w), transparent var(--w) 100%);
+}
+
+@keyframes tick {
+  from {
+    background-color: var(--tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.tick td {
+  animation: tick 0.55s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tick td {
+    animation: none;
+  }
+}
+
+/* Scrollbar in the same ink as the page — a scrollbar is chrome, not data. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}

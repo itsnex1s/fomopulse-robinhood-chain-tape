@@ -1,0 +1,10 @@
+{
+  "api": "https://prod-api.fomo.family",
+  "site": "https://fomo.family",
+  "userAgent": "fomopulse/0.1 (+https://fomopulse.app)",
+  "privy": {
+    "sessions": "https://auth.privy.io/api/v1/sessions",
+    "appId": "cm6h485o300n3zj9yl6vpedq7",
+    "clientId": "client-WY5gFSayQjxnQhG4rP6SnwPAyPZWZpNRhJ6b9rzMnYwqH"
+  }
+}

@@ -1,0 +1,19 @@
+name: Feature request
+description: A wallet, a chain, a screen, a rule
+title: "[feat]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The wallet, chain, screen or pricing rule you want, in one paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What decision it unblocks for a reader of the tape.
+    validations:
+      required: true

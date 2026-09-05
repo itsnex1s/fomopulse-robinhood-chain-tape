@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- The one place the public origin appears, besides robots.txt and sitemap.xml. -->
+    <title>fomopulse — live tape of the top fomo.family traders on Robinhood Chain</title>
+    <meta
+      name="description"
+      content="Every buy and sell of the top fomo.family traders on Robinhood Chain, on one live tape: size, price, token, trader, transaction. Open source, read-only, no keys, no trading."
+    />
+    <link rel="canonical" href="https://fomopulse.app/" />
+    <meta name="theme-color" content="#0a0d10" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="keywords" content="fomo.family, Robinhood Chain, live tape, time and sales, copy trading, on-chain, memecoins, tokenised stocks" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="fomopulse" />
+    <meta property="og:title" content="fomopulse — the fomo.family tape, live" />
+    <meta
+      property="og:description"
+      content="Every buy and sell of the top fomo.family traders on Robinhood Chain, on one live tape. Open source, read-only, no keys."
+    />
+    <meta property="og:url" content="https://fomopulse.app/" />
+    <meta property="og:image" content="https://fomopulse.app/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="fomopulse terminal: buys and sells of tracked wallets with size bars" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="fomopulse — the fomo.family tape, live" />
+    <meta
+      name="twitter:description"
+      content="Every buy and sell of the top fomo.family traders on Robinhood Chain, on one live tape. Open source, read-only, no keys."
+    />
+    <meta name="twitter:image" content="https://fomopulse.app/og.png" />
+    <meta name="twitter:image:alt" content="fomopulse terminal: buys and sells of tracked wallets with size bars" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "fomopulse",
+        "url": "https://fomopulse.app/",
+        "description": "Live tape of every buy and sell made by the top fomo.family traders on Robinhood Chain.",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "codeRepository": "https://github.com/itsnex1s/fomopulse-robinhood-chain-tape",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+
+    <!-- The faces index.css asks for; without these the terminal falls back to system fonts. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      fomopulse streams every buy and sell of the top fomo.family traders on Robinhood Chain (id 4663) onto one
+      live tape, reconstructed from Transfer logs. The tape needs JavaScript; the same data is served as JSON at
+      <a href="/api/tape">/api/tape</a> and <a href="/api/status">/api/status</a>. Source:
+      <a href="https://github.com/itsnex1s/fomopulse-robinhood-chain-tape">github.com/itsnex1s/fomopulse-robinhood-chain-tape</a>.
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

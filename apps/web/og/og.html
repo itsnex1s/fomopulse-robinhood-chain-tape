@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>fomopulse share card</title><style>
+  * { margin:0; box-sizing:border-box; }
+  body { width:1200px; height:630px; background:#0a0d10; color:#c8d0da;
+         font:14px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  .wrap { padding:64px 72px; height:100%; display:flex; flex-direction:column; }
+  .brand { display:flex; align-items:center; gap:20px; }
+  .mark { width:64px; height:64px; }
+  h1 { font-size:64px; letter-spacing:-0.02em; color:#f0b429; font-weight:600; }
+  p { margin-top:18px; font-size:26px; color:#7b8794; max-width:900px; line-height:1.35; }
+  table { margin-top:44px; width:100%; border-collapse:collapse;
+          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:20px; font-variant-numeric:tabular-nums; }
+  th { text-align:left; font-weight:400; font-size:13px; letter-spacing:.12em; text-transform:uppercase;
+       color:#48525d; padding:0 12px 8px; border-bottom:1px solid #191f27; }
+  td { padding:6px 12px; white-space:nowrap; }
+  .r { text-align:right; }
+  .up { color:#2fd08a; } .down { color:#ff5470; } .dim { color:#7b8794; } .dimmer { color:#48525d; }
+  .bar { height:9px; border-radius:2px; opacity:.55; }
+  .foot { margin-top:auto; display:flex; gap:16px; align-items:center; font-size:20px; color:#48525d; }
+  .foot b { color:#c8d0da; font-weight:500; }
+  .amber { color:#f0b429; }
+</style></head><body><div class="wrap">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 64 64" role="img" aria-label="fomopulse"><title>fomopulse</title><rect width="64" height="64" rx="14" fill="#10151b"/>
+      <rect x="11" y="16" width="42" height="7" rx="2" fill="#2fd08a"/>
+      <rect x="11" y="28" width="25" height="7" rx="2" fill="#ff5470"/>
+      <rect x="11" y="40" width="34" height="7" rx="2" fill="#f0b429"/></svg>
+    <h1>fomopulse</h1>
+  </div>
+  <p>Every buy and sell of the top fomo.family traders on Robinhood Chain, on one live tape. Open source, read-only, no keys.</p>
+  <table>
+    <tr><th>time</th><th>side</th><th class="r">usd</th><th>token</th><th>trader</th><th>size</th></tr>
+    <tr><td class="dim">13:24:22</td><td class="down">SELL</td><td class="r down">$4,967.23</td><td>HMM</td><td class="dim">pianches</td><td><div class="bar" style="width:150px;background:#ff5470"></div></td></tr>
+    <tr><td class="dim">13:23:31</td><td class="down">SELL</td><td class="r down">$10,242.50</td><td>HMM</td><td class="dim">pianches</td><td><div class="bar" style="width:186px;background:#ff5470"></div></td></tr>
+    <tr><td class="dim">13:23:05</td><td class="up">BUY</td><td class="r up">$1,982.41</td><td>CRIME</td><td class="dim">yaevwastaken</td><td><div class="bar" style="width:120px;background:#2fd08a"></div></td></tr>
+    <tr><td class="dim">13:22:50</td><td class="up">BUY</td><td class="r up">$23,403.37</td><td>TENDIES</td><td class="dim">traderpow</td><td><div class="bar" style="width:210px;background:#2fd08a"></div></td></tr>
+    <tr><td class="dim">13:22:38</td><td class="down">SELL</td><td class="r down">$6,961.24</td><td>PONGO</td><td class="dim">0xleo</td><td><div class="bar" style="width:166px;background:#ff5470"></div></td></tr>
+  </table>
+  <div class="foot">
+    <span><b id="wallets">294</b> tracked wallets</span><span>·</span>
+    <span>Robinhood Chain <b>4663</b></span><span>·</span>
+    <span>every fill, as it lands</span><span>·</span>
+    <span class="amber">fomopulse.app</span>
+  </div>
+</div></body></html>
