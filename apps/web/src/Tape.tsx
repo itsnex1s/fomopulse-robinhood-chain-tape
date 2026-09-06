@@ -74,13 +74,17 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
         <td className={`${num} ${mid} text-dim font-mono`}>{fill.price === null ? "" : price(fill.price)}</td>
         {/* The trade against the price now: the one number a reader of a tape wants next to a
             price. Both numbers are spelled out in the title, because a percentage on its own
-            leaves the reader to work out which way round it was taken. */}
+            leaves the reader to work out which way round it was taken — and on a fill priced
+            from the feed they are the same number until the mark moves, so the title says the
+            feed rather than claiming a price the wallet was never quoted. */}
         <td
           className={`${num} ${mid} font-mono ${tone(vsNow)}`}
           title={
             vsNow === null || fill.price === null || fill.mark === null
               ? "no mark for this token yet"
-              : `${buy ? "bought" : "sold"} at ${price(fill.price)}, the token trades at ${price(fill.mark)} now`
+              : fill.priced === "estimate"
+                ? `the feed had it at ${price(fill.price)} when this landed, ${price(fill.mark)} now`
+                : `${buy ? "bought" : "sold"} at ${price(fill.price)}, the token trades at ${price(fill.mark)} now`
           }
         >
           {vsNow === null ? "" : pct(vsNow)}
