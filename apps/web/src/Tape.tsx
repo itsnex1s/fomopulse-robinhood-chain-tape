@@ -3,7 +3,7 @@ import { useShallow } from "zustand/shallow";
 import { Avatar } from "./Avatar.tsx";
 import { getTape, tokenUrl, traderUrl, txUrl } from "./api.ts";
 import { type Links, NEW_POOL_S, poolAge, THIN_LIQUIDITY, TokenCard, TraderCard, vsNowPct } from "./cards.tsx";
-import { clock, compact, pct, price, short, usd, usdCompact } from "./format.ts";
+import { amount, clock, compact, pct, price, short, usd, usdCompact } from "./format.ts";
 import { Hover } from "./Hover.tsx";
 import { useTape, useUi } from "./store.ts";
 import { denseCell as cell, head, mid, roomy, tone, wide } from "./table.tsx";
@@ -146,7 +146,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
           </Hover>
         </td>
         <td className={`${num} ${wide} text-dimmer font-mono`}>{compact(fill.followers)}</td>
-        <td className={`${num} ${wide} text-dimmer font-mono`}>{compact(fill.amount)}</td>
+        <td className={`${num} ${wide} text-dimmer font-mono`}>{amount(fill.amount)}</td>
         <td className={`${cell} ${mid}`}>
           <a
             className="text-dimmer hover:text-accent font-mono"
