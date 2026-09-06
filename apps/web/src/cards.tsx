@@ -32,6 +32,20 @@ export const vsNowPct = (fill: Fill): number | null => {
   return (fill.side === "buy" ? fill.mark / fill.price - 1 : fill.price / fill.mark - 1) * 100;
 };
 
+/**
+ * What the whole token was worth when this fill landed. The feed reports the market cap
+ * now, and the row carries both the price paid and the price now: the ratio between those
+ * two is the ratio between the two market caps, because the supply of these tokens does
+ * not move. So the column answers what a tape is read for — the size they got in at —
+ * instead of repeating today's number down every row of the same token, which is what the
+ * card is for.
+ */
+export const mcapAt = (fill: Fill): number | null => {
+  if (fill.market_cap === null || fill.mark === null || fill.price === null) return null;
+  if (fill.mark <= 0 || fill.price <= 0 || fill.priced === "unpriced") return null;
+  return (fill.market_cap * fill.price) / fill.mark;
+};
+
 export const poolAge = (fill: Fill, at: number): number | null =>
   fill.pair_created_at === null ? null : at - fill.pair_created_at / 1000;
 
@@ -62,7 +76,9 @@ export function TokenCard({ fill, explorer, slug }: { fill: Fill } & Links) {
               </>
             ),
           ],
-          ["mcap", fill.market_cap === null ? null : usdCompact(fill.market_cap)],
+          // Named for the clock, because the row now has the other one: the column is the market cap
+          // this fill landed at, and the two sitting side by side unlabelled read as a contradiction.
+          ["mcap now", fill.market_cap === null ? null : usdCompact(fill.market_cap)],
           ["vol 24h", fill.volume24 === null ? null : usdCompact(fill.volume24)],
           [
             "liquidity",

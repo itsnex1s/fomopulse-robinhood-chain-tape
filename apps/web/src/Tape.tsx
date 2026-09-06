@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { Avatar } from "./Avatar.tsx";
 import { getTape, tokenUrl, traderUrl, txUrl } from "./api.ts";
-import { type Links, NEW_POOL_S, poolAge, THIN_LIQUIDITY, TokenCard, TraderCard, vsNowPct } from "./cards.tsx";
+import { type Links, mcapAt, NEW_POOL_S, poolAge, THIN_LIQUIDITY, TokenCard, TraderCard, vsNowPct } from "./cards.tsx";
 import { clock, compact, pct, price, short, usd, usdCompact } from "./format.ts";
 import { Hover } from "./Hover.tsx";
 import { useTape, useUi } from "./store.ts";
@@ -31,6 +31,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
   const side = buy ? "text-up" : "text-down";
   const tint = buy ? "rgba(47,208,138,0.13)" : "rgba(255,84,112,0.13)";
   const vsNow = vsNowPct(fill);
+  const mcap = mcapAt(fill);
   const age = poolAge(fill, fill.ts);
   const launch = age !== null && age < NEW_POOL_S;
   const thin = fill.liquidity !== null && fill.liquidity < THIN_LIQUIDITY;
@@ -119,6 +120,16 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
             )}
           </Hover>
         </td>
+        <td
+          className={`${num} ${mid} text-dim font-mono`}
+          title={
+            mcap === null
+              ? "no mark for this token yet"
+              : `${usdCompact(mcap)} when this landed, ${fill.market_cap === null ? "unknown" : usdCompact(fill.market_cap)} now`
+          }
+        >
+          {mcap === null ? "" : usdCompact(mcap)}
+        </td>
         <td className={cell}>
           <Hover card={() => <TraderCard fill={fill} />}>
             <a
@@ -197,7 +208,7 @@ function Older({ window: window_, stocks, dust }: { window: Window; stocks: bool
 
   return (
     <tr>
-      <td colSpan={11} className="px-2 py-3 text-center text-[11px] text-dim">
+      <td colSpan={12} className="px-2 py-3 text-center text-[11px] text-dim">
         {state === "end" ? (
           "that is the whole window"
         ) : (
@@ -257,6 +268,12 @@ export function Tape({ explorer, slug }: Links) {
           </th>
           <th className={head} title="hover a token for its card: mark, market cap, volume, liquidity, pool age">
             token
+          </th>
+          <th
+            className={`${head} ${mid} text-right`}
+            title="what the whole token was worth when this fill landed, not what it is worth now — the price paid against the price now, over today's market cap. Today's is on the token's card"
+          >
+            mcap
           </th>
           <th className={`${head} w-full`} title="hover a trader for their card: rank, pnl, what they did here">
             trader
