@@ -103,7 +103,10 @@ one of them had the tape reporting $132.9 billion of volume in a day — so thos
 left unpriced, which the tape shows as a dash. And the same amount, from one sender, to
 five wallets or more in a single transaction is a handout however much the pool says it is
 worth: nobody buys the identical quantity as seventy other people at the same instant.
-Both rules are why the receipts are kept. `bun run rebuild` replays them through the
+A token that turns out to trade for real pardons its own dusting — one paid buy brings its
+whole cheap history back — but never a handout: fomocat has a live pool, fifteen honest
+buys in it, and a spray to seventy-three wallets at a time, and the three are separate
+facts. Both rules are why the receipts are kept. `bun run rebuild` replays them through the
 current reconstruction without touching the chain, and a deployment whose rules have moved
 on replays its own once, a couple of thousand receipts per pass, on the next few ticks.
 

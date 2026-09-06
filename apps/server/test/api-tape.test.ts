@@ -102,7 +102,7 @@ test("dusting is hidden from the tape, and one real trade brings the token back"
         usd: 0.04,
         price: 0.0004,
         priced: "estimate",
-        dust: true,
+        dust: 1,
       }),
     ),
   );

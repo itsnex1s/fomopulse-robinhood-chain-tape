@@ -2,7 +2,15 @@
  *  history of the token at all. */
 import { expect, test } from "bun:test";
 import type { Address } from "viem";
-import { type Kind, type RawReceipt, type ReconstructContext, reconstruct } from "../src/ingest/reconstruct.ts";
+import {
+  DUSTED,
+  HANDOUT,
+  type Kind,
+  type RawReceipt,
+  type ReconstructContext,
+  reconstruct,
+  TRADE,
+} from "../src/ingest/reconstruct.ts";
 import airdropReceipt from "./fixtures/airdrop-chad.json" with { type: "json" };
 import { alice, buy, context, pool, red, transferLog, twoBuyers } from "./support/receipts.ts";
 
@@ -19,21 +27,21 @@ test("a token first seen in this transaction is dusting when nobody paid for it"
   const worth = (usd: number) => new Map([[delivered.token, usd / delivered.amount]]);
   const of = (overrides: Partial<ReconstructContext>) => reconstruct(receipt, { ...base, ...overrides })[0]!;
 
-  expect(of({ prices: worth(0.04) }).dust).toBe(true);
+  expect(of({ prices: worth(0.04) }).dust).toBe(DUSTED);
   // The same delivery of something worth having is not dusting.
-  expect(of({ prices: worth(400) }).dust).toBe(false);
+  expect(of({ prices: worth(400) }).dust).toBe(TRADE);
   // Neither is a tokenised stock, which fomo settles out of an account of its own.
-  expect(of({ prices: worth(0.04), isStock: () => true }).dust).toBe(false);
+  expect(of({ prices: worth(0.04), isStock: () => true }).dust).toBe(TRADE);
   // Nor one handed over by something that took payment in the same transaction: the buy
   // fixture is a real swap, and its counterparty receives the cash leg back.
   const swap = reconstruct(buy.receipt, context(buy.receipt, [buy.wallet], { prices: worth(0.04) }));
-  expect(swap[0]!.dust).toBe(false);
+  expect(swap[0]!.dust).toBe(TRADE);
 });
 
 test("a fill paid for in the same transaction is never dusting, however small", () => {
   const fills = reconstruct(buy.receipt, context(buy.receipt, [buy.wallet]));
   expect(fills[0]!.priced).toBe("cash_leg");
-  expect(fills[0]!.dust).toBe(false);
+  expect(fills[0]!.dust).toBe(TRADE);
 });
 
 /** One sender pushing the same amount to `count` wallets at once, the tracked one among them. */
@@ -66,9 +74,9 @@ test("the same amount handed to many wallets at once is a handout, whatever the 
   const fill = reconstruct(many.receipt, many.ctx)[0]!;
   expect(fill.wallet).toBe(alice);
   expect(fill.usd).toBe(100); // priced, and still not a trade
-  expect(fill.dust).toBe(true);
+  expect(fill.dust).toBe(HANDOUT);
 
   // Under the threshold it is an ordinary delivery again, and worth enough to keep.
   const few = spray(4);
-  expect(reconstruct(few.receipt, few.ctx)[0]!.dust).toBe(false);
+  expect(reconstruct(few.receipt, few.ctx)[0]!.dust).toBe(TRADE);
 });

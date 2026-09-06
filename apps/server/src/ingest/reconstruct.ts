@@ -7,6 +7,19 @@ export { parse, TRANSFER_TOPIC, transfers } from "./parse.ts";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+/**
+ * Why a fill is off the tape, kept on the fill itself. A trade is `0`. `1` is dusting by
+ * value — nobody paid for it and it is worth cents — and one real trade in the token
+ * pardons the token's whole dusty history. `2` is a handout by shape, which nothing
+ * pardons: what one transaction was is not changed by what other transactions were.
+ * Measured 2026-09-06: fomocat is a real token with a real pool, and fifteen paid buys in
+ * it brought back two hundred and sixty-one rows of a spray to seventy-three wallets.
+ */
+export const TRADE = 0;
+export const DUSTED = 1;
+export const HANDOUT = 2;
+export type Dust = typeof TRADE | typeof DUSTED | typeof HANDOUT;
+
 /** One fill as stored: the wallet's movement, its size in dollars, and how that number was obtained. */
 export interface StoredFill {
   tx: string;
@@ -21,8 +34,8 @@ export interface StoredFill {
   price: number | null;
   /** How `usd` was obtained: exactly from the cash leg, from the price feed, or not at all. */
   priced: "cash_leg" | "estimate" | "unpriced";
-  /** Nobody paid for this one and it is worth cents: dusting, decided on the fill itself. */
-  dust: boolean;
+  /** Whether this is a trade at all, and if not, which rule says so. */
+  dust: Dust;
 }
 
 export interface ReconstructContext {
@@ -277,10 +290,13 @@ const HANDED_TO = 5;
  * second ago is already off the tape, and one real trade in it clears the flag from its
  * whole history (`clearDust`).
  */
-function isDusting(leg: Leg, usd: number | null, paidFor: boolean, all: Transfer[], ctx: ReconstructContext): boolean {
-  if (paidFor || ctx.isStock?.(leg.token)) return false;
-  if (all.some((t) => t.to === leg.counterparty && t.token !== leg.token)) return false;
-  return usd === null || usd < DUST_USD || handedOut(leg, all);
+function isDusting(leg: Leg, usd: number | null, paidFor: boolean, all: Transfer[], ctx: ReconstructContext): Dust {
+  if (paidFor || ctx.isStock?.(leg.token)) return TRADE;
+  if (all.some((t) => t.to === leg.counterparty && t.token !== leg.token)) return TRADE;
+  // The shape first: a handout of a token that trades for real is still a handout, and
+  // saying so with the same flag as "worth cents" is what let one paid buy undo it.
+  if (handedOut(leg, all)) return HANDOUT;
+  return usd === null || usd < DUST_USD ? DUSTED : TRADE;
 }
 
 /**

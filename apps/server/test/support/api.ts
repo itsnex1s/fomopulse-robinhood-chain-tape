@@ -35,6 +35,6 @@ export const fill = (over: Partial<StoredFill> & Pick<StoredFill, "tx" | "wallet
   usd: 100,
   price: 100,
   priced: "cash_leg",
-  dust: false,
+  dust: 0,
   ...over,
 });

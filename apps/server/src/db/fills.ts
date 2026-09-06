@@ -13,9 +13,12 @@ const stmt = {
   ),
   deleteFill: db.query("DELETE FROM fills WHERE tx = ? AND log_index = ?"),
   /**
-   * Dusting is decided per fill, as it is reconstructed, so the first one is already off
-   * the tape. This is the way back: one paid trade or one sale of the token says the
-   * token is real after all, and its whole history comes back with it.
+   * Dusting by value is decided per fill, as it is reconstructed, so the first one is
+   * already off the tape. This is the way back: one paid trade or one sale of the token
+   * says the token is real after all, and its whole history comes back with it. Only
+   * that kind — `dust = 1`. A handout is `2` and is not pardoned here: fomocat trades in
+   * a real pool and is sprayed to seventy-three wallets at a time, and one honest buy in
+   * it must not put the spray back on the tape.
    *
    * One token at a time, run as its fills land. The sweeping form of this — every dusty
    * row whose token appears anywhere with a cash leg or a sale — was two full scans of
@@ -57,7 +60,7 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
         f.usd,
         f.price,
         f.priced,
-        f.dust ? 1 : 0,
+        f.dust,
       );
       if (changes > 0) {
         fresh.push(f);

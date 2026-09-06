@@ -35,4 +35,4 @@ console.log(
   `${receipts} receipts, ${blockTs.size} block timestamps read, ${thin} thin quotes dropped, ${unpriced} fills unpriced → ${fills} fills (was ${before})`,
 );
 for (const row of byPricing) console.log(`  ${row.priced.padEnd(10)} ${row.n}`);
-console.log(`  ${"dust".padEnd(10)} ${db.query<{ n: number }, []>("SELECT SUM(dust) n FROM fills").get()!.n ?? 0}`);
+console.log(`  ${"dust".padEnd(10)} ${db.query<{ n: number }, []>("SELECT SUM(dust > 0) n FROM fills").get()!.n ?? 0}`);

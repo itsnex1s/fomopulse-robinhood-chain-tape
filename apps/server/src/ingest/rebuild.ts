@@ -22,8 +22,9 @@ import { reconstruct } from "./reconstruct.ts";
  * receipts once on the next tick instead of carrying the mistake until the rows age out.
  *
  * 1 — the liquidity floor under a quote, and airdrops read as handouts rather than buys.
+ * 2 — a handout is its own verdict, and a paid trade in the token no longer pardons it.
  */
-export const RULES = 1;
+export const RULES = 2;
 const RULES_KEY = "rules";
 
 export interface RebuildResult {
