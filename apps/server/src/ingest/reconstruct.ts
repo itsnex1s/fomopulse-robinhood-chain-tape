@@ -283,9 +283,10 @@ const HANDED_TO = 5;
  * whole transaction — no quote token moved in it, so nobody paid for anything; the
  * counterparty took nothing but the same token back, so it handed the token out rather
  * than traded it (a pool always receives the other side of the swap, while a dusting
- * script is fed the token it sprays and sprays it on); the fill is
- * worth cents; and the token is not a tokenised stock, which fomo settles out of an
- * account of its own. Each of those alone is innocent, so all four are required. The
+ * script is fed the token it sprays and sprays it on); and the token is not a tokenised
+ * stock, which fomo settles out of an account of its own. Past those, two things end it:
+ * the shape of the transfer itself — one token, one sender, nothing coming back — or, for
+ * a receipt that at least looks like a trade, a fill worth cents. The
  * verdict needs no history, which is the point: the first fill of a token minted a
  * second ago is already off the tape, and one real trade in it clears the flag from its
  * whole history (`clearDust`).
@@ -295,8 +296,27 @@ function isDusting(leg: Leg, usd: number | null, paidFor: boolean, all: Transfer
   if (all.some((t) => t.to === leg.counterparty && t.token !== leg.token)) return TRADE;
   // The shape first: a handout of a token that trades for real is still a handout, and
   // saying so with the same flag as "worth cents" is what let one paid buy undo it.
-  if (handedOut(leg, all)) return HANDOUT;
+  if (pushed(leg, all) || handedOut(leg, all)) return HANDOUT;
   return usd === null || usd < DUST_USD ? DUSTED : TRADE;
+}
+
+/**
+ * A spray does not need to fit in one transaction. The same script sends the same amount to
+ * one wallet at a time, a few seconds apart, and each transaction on its own is a wallet
+ * whose balance went up — which is why counting recipients within a receipt does not see it.
+ * What such a transaction never has is a second side: the whole receipt is one token leaving
+ * one sender, and the caller has already established that nothing came back for it. A trade
+ * moves two things; this moves one. Measured 2026-09-06: 6 300 BREW pushed to 75 wallets in
+ * 87 transactions, six seconds apart, priced at $392.55 each by a pool that had traded
+ * nineteen cents all day — $34k of "buys" nobody paid for.
+ *
+ * A tokenised stock arrives in exactly this shape and is a real fill, which is why the
+ * stock check runs before this one: four in five of the archive's clean fills come from
+ * receipts in which no quote token moved at all.
+ */
+function pushed(leg: Leg, all: Transfer[]): boolean {
+  const sender = leg.side === "buy" ? leg.counterparty : leg.trader;
+  return all.every((t) => t.token === leg.token && t.from === sender);
 }
 
 /**
