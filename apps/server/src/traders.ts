@@ -3,10 +3,12 @@ import { chainConfig, wallets } from "./config.ts";
 import {
   allTraders,
   bags,
+  getMeta,
   holdersOf,
   recordBagHistory,
   saveHoldings,
   saveTraders,
+  setMeta,
   type TraderRow,
   tapeBags,
   tapeHolders,
@@ -54,9 +56,40 @@ let failures = 0;
  * which is a hundred and forty-four refusals a day knocking at a door that said no.
  */
 const REFUSED_MS = 6 * 3_600_000;
-/** When it is worth asking again, and what was said the last time we did. */
+/**
+ * When it is worth asking again, and what was said the last time we did. Kept in the
+ * database as well as in memory: a deploy or an eviction replaces the object, and a
+ * stand-down that starts over every restart is not a stand-down at all.
+ */
+const REFUSED_KEY = "fomo:refused";
 let refusedUntil = 0;
 let refusal: string | null = null;
+let readRefusal = false;
+
+/** The stored refusal, read once per process and kept in step with it afterwards. */
+function refused(): { until: number; why: string | null } {
+  if (!readRefusal) {
+    readRefusal = true;
+    try {
+      const raw = getMeta(REFUSED_KEY);
+      if (raw) {
+        const held = JSON.parse(raw) as { until: number; why: string };
+        refusedUntil = held.until;
+        refusal = held.why;
+      }
+    } catch {
+      // no database yet, or a row this version cannot read: nothing to stand down for
+    }
+  }
+  return { until: refusedUntil, why: refusal };
+}
+
+function stand(until: number, why: string | null): void {
+  refusedUntil = until;
+  refusal = why;
+  readRefusal = true;
+  setMeta(REFUSED_KEY, why === null ? "" : JSON.stringify({ until, why }));
+}
 
 /**
  * How long to wait before asking fomo again. The regular interval once the table has
@@ -78,7 +111,7 @@ export const retryInterval = (
   return answered ? regularMs : Math.min(regularMs, coldMs * 2 ** failed);
 };
 export const traderInterval = (regularMs = 10 * 60_000, coldMs = 60_000): number =>
-  retryInterval(regularMs, coldMs, ranked(), failures, Math.max(0, refusedUntil - Date.now()));
+  retryInterval(regularMs, coldMs, ranked(), failures, Math.max(0, refused().until - Date.now()));
 
 /** Pull all four leaderboard windows and store them. One pass is four requests. */
 export async function refresh(): Promise<number> {
@@ -114,16 +147,12 @@ export async function maintain(): Promise<void> {
         (n) => {
           log.info(`traders: ${n} from the leaderboard`);
           failures = 0;
-          refusedUntil = 0;
-          refusal = null;
+          if (refused().why !== null) stand(0, null);
           return null;
         },
         (error: unknown) => {
           failures++;
-          if (error instanceof FomoError && error.status === 403) {
-            refusedUntil = Date.now() + REFUSED_MS;
-            refusal = error.message;
-          }
+          if (error instanceof FomoError && error.status === 403) stand(Date.now() + REFUSED_MS, error.message);
           return error;
         },
       )
@@ -161,12 +190,13 @@ export const leaderboardState = () => {
   let updatedAt: number | null = null;
   for (const row of byHandle.values())
     if (row.updated_at !== null && (updatedAt === null || row.updated_at > updatedAt)) updatedAt = row.updated_at;
+  const { until, why } = refused();
   return {
     updated_at: updatedAt,
     /** Set while fomo is refusing this caller; the reason as fomo gave it. */
-    refused: refusal,
+    refused: why,
     /** Seconds until the next attempt, when there is a reason to wait. */
-    asking_again_in: refusedUntil > Date.now() ? Math.round((refusedUntil - Date.now()) / 1000) : null,
+    asking_again_in: until > Date.now() ? Math.round((until - Date.now()) / 1000) : null,
   };
 };
 
