@@ -106,7 +106,7 @@ export function Traders() {
               pos
             </SortHeader>
             <SortHeader sort={sort} flip={flip} sortKey="flw" title="followers on fomo" extra={wide}>
-              flw
+              followers
             </SortHeader>
             <SortHeader sort={sort} flip={flip} sortKey="here" title="volume this tape saw in the window">
               here

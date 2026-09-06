@@ -262,7 +262,7 @@ export function Tape({ explorer, slug }: Links) {
             trader
           </th>
           <th className={`${head} ${wide} text-right`} title="the trader's followers on fomo">
-            flw
+            followers
           </th>
           <th className={`${head} ${wide} text-right`} title="how many tokens changed hands">
             qty
