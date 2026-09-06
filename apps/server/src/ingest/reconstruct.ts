@@ -268,7 +268,7 @@ export function reconstruct(receipt: ReceiptInput, ctx: ReconstructContext): Sto
 }
 
 /** Under this, a fill nobody paid for is not worth a line of the tape. */
-const DUST_USD = 5;
+export const DUST_USD = 5;
 /**
  * Wallets credited with the same amount, by one sender, in one transaction, before the
  * transfer is a handout rather than a trade. Measured 2026-09-06: fomodoge was pushed to

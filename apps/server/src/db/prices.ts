@@ -1,3 +1,4 @@
+import { DUST_USD, DUSTED, TRADE } from "../ingest/reconstruct.ts";
 import { MIN_LIQUIDITY } from "../prices/dexscreener.ts";
 import { db } from "./connection.ts";
 
@@ -34,7 +35,18 @@ const stmt = {
   unpriced: db.query<{ tx: string; log_index: number; amount: number }, [string, number]>(
     "SELECT tx, log_index, amount FROM fills WHERE token = ? AND priced = 'unpriced' AND ts >= ?",
   ),
-  setEstimate: db.query("UPDATE fills SET usd = ?, price = ?, priced = 'estimate' WHERE tx = ? AND log_index = ?"),
+  /**
+   * A fill that reached the tape before its token had a price was judged with no value to
+   * judge: `usd === null` is dusting, provisionally. The price arriving is the rest of that
+   * decision, so it is taken here rather than left standing — measured 2026-09-06, a
+   * $18,791 buy of MEME sat off the tape as dust because it landed a minute before the
+   * quote did. A handout is a verdict about shape and a price says nothing about it.
+   */
+  setEstimate: db.query(
+    `UPDATE fills SET usd = ?, price = ?, priced = 'estimate',
+       dust = CASE WHEN dust = ${DUSTED} AND ? >= ${DUST_USD} THEN ${TRADE} ELSE dust END
+     WHERE tx = ? AND log_index = ?`,
+  ),
 };
 
 /** A quote as the feed returns it: only the price is certain, the rest of the card is optional. */
@@ -80,4 +92,4 @@ export const dropThinPrices = (floor = MIN_LIQUIDITY): number => stmt.dropThin.r
 export const tokensToPrice = (sinceTs: number, limit: number) => stmt.toPrice.all(sinceTs, limit).map((r) => r.token);
 export const unpricedFills = (token: string, sinceTs: number) => stmt.unpriced.all(token, sinceTs);
 export const setEstimate = (tx: string, logIndex: number, usd: number, price: number) =>
-  stmt.setEstimate.run(usd, price, tx, logIndex);
+  stmt.setEstimate.run(usd, price, usd, tx, logIndex);

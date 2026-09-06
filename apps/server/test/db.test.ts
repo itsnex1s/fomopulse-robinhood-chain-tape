@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Address } from "viem";
 import { QUOTE_TOKENS } from "../src/config.ts";
-import { db, getReceipt, saveReceipt } from "../src/db.ts";
+import { db, getReceipt, saveReceipt, setEstimate } from "../src/db.ts";
 import {
   DUSTED,
   HANDOUT,
@@ -65,4 +65,30 @@ test("one paid trade brings back the token's dusting and never its handouts", ()
   // The buy that says the token is real.
   insertFills([fill({ tx: "0xdc03", wallet, token, logIndex: 1, priced: "cash_leg" })]);
   expect([dustOf("0xdc01"), dustOf("0xdc02")]).toEqual([TRADE, HANDOUT]);
+});
+
+/**
+ * A fill that lands a minute before its token's first quote is judged with nothing to judge
+ * by. The price arriving finishes that decision rather than leaving it: measured 2026-09-06,
+ * an $18,791 buy of MEME sat off the tape as dust for exactly this reason.
+ */
+test("a price arriving finishes the verdict it was missing", () => {
+  const token = "0xcccc222222222222222222222222222222222222";
+  const wallet = wallets[9]!.address;
+  insertFills([
+    fill({ tx: "0xdc04", wallet, token, dust: DUSTED, usd: null, price: null, priced: "unpriced", amount: 1000 }),
+    fill({ tx: "0xdc05", wallet, token, dust: DUSTED, usd: null, price: null, priced: "unpriced", amount: 1 }),
+    fill({ tx: "0xdc06", wallet, token, dust: HANDOUT, usd: null, price: null, priced: "unpriced", amount: 1000 }),
+  ]);
+  const row = (tx: string) =>
+    db.query<{ dust: number; usd: number }, [string]>("SELECT dust, usd FROM fills WHERE tx = ?").get(tx)!;
+
+  setEstimate("0xdc04", 0, 1000 * 0.5, 0.5);
+  setEstimate("0xdc05", 0, 1 * 0.5, 0.5);
+  setEstimate("0xdc06", 0, 1000 * 0.5, 0.5);
+  // Worth keeping, so it comes back; worth fifty cents, so it does not; a handout is about
+  // shape and no price says anything about that.
+  expect(row("0xdc04")).toEqual({ dust: TRADE, usd: 500 });
+  expect(row("0xdc05")).toEqual({ dust: DUSTED, usd: 0.5 });
+  expect(row("0xdc06")).toEqual({ dust: HANDOUT, usd: 500 });
 });

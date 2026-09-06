@@ -23,8 +23,10 @@ import { reconstruct } from "./reconstruct.ts";
  *
  * 1 — the liquidity floor under a quote, and airdrops read as handouts rather than buys.
  * 2 — a handout is its own verdict, and a paid trade in the token no longer pardons it.
+ * 3 — a spray that sends to one wallet per transaction is a handout too.
+ * 4 — a fill dusted for having no price is re-judged once it has one.
  */
-export const RULES = 3;
+export const RULES = 4;
 const RULES_KEY = "rules";
 
 export interface RebuildResult {
