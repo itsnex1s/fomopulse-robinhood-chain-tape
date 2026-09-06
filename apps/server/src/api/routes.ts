@@ -4,7 +4,7 @@ import { counts, getMeta, overview, tape } from "../db.ts";
 import { cursor } from "../ingest/cursor.ts";
 import { latencyMs, latencySummary } from "../ingest/lag.ts";
 import { sessionState } from "../privy.ts";
-import { bagList, ranking } from "../traders.ts";
+import { bagList, leaderboardState, ranking } from "../traders.ts";
 import { since } from "../window.ts";
 import { handleOf, toFill } from "./fills.ts";
 import type { Overview, Status } from "./types.ts";
@@ -83,6 +83,8 @@ const status = memo(5_000, (window): Status => {
     // Every tab used to poll this and /api/overview on two timers a couple of seconds
     // apart, which is two round trips to the object for one bar. One answer carries both.
     overview: overviewFor(window),
+    // Whose numbers are fomo's, and whether they are still arriving.
+    leaderboard: leaderboardState(),
   };
 });
 

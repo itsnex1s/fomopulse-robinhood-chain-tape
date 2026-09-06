@@ -12,7 +12,7 @@ import {
   tapeHolders,
   tapeStats,
 } from "./db.ts";
-import { leaderboard, WINDOWS } from "./fomo.ts";
+import { FomoError, leaderboard, WINDOWS } from "./fomo.ts";
 import { log } from "./log.ts";
 import { nameBags, quoteBags } from "./prices/bags.ts";
 import { hasSession } from "./privy.ts";
@@ -46,6 +46,17 @@ export function ranked(): boolean {
 
 /** Failed leaderboard reads in a row; cleared by the next one that answers. */
 let failures = 0;
+/**
+ * How long to leave fomo alone after it refuses us outright. A 403 arrives on a token
+ * fomo itself accepted — the session is fine and the caller is not welcome — so nothing
+ * we do between now and then changes the answer. Measured 2026-09-06: the leaderboard had
+ * been refused for twenty hours, and the tick asked again every ten minutes throughout,
+ * which is a hundred and forty-four refusals a day knocking at a door that said no.
+ */
+const REFUSED_MS = 6 * 3_600_000;
+/** When it is worth asking again, and what was said the last time we did. */
+let refusedUntil = 0;
+let refusal: string | null = null;
 
 /**
  * How long to wait before asking fomo again. The regular interval once the table has
@@ -54,10 +65,20 @@ let failures = 0;
  * every failed read, so a dead token is asked a few times an hour and not four times a
  * minute for as long as it stays dead.
  */
-export const retryInterval = (regularMs: number, coldMs: number, answered: boolean, failed: number): number =>
-  answered ? regularMs : Math.min(regularMs, coldMs * 2 ** failed);
+export const retryInterval = (
+  regularMs: number,
+  coldMs: number,
+  answered: boolean,
+  failed: number,
+  refusedForMs = 0,
+): number => {
+  // A refusal outranks both clocks: the cold interval exists to fill an empty table fast,
+  // and asking four times an hour is the last thing to do at a door that answered 403.
+  if (refusedForMs > 0) return Math.max(refusedForMs, regularMs);
+  return answered ? regularMs : Math.min(regularMs, coldMs * 2 ** failed);
+};
 export const traderInterval = (regularMs = 10 * 60_000, coldMs = 60_000): number =>
-  retryInterval(regularMs, coldMs, ranked(), failures);
+  retryInterval(regularMs, coldMs, ranked(), failures, Math.max(0, refusedUntil - Date.now()));
 
 /** Pull all four leaderboard windows and store them. One pass is four requests. */
 export async function refresh(): Promise<number> {
@@ -93,10 +114,16 @@ export async function maintain(): Promise<void> {
         (n) => {
           log.info(`traders: ${n} from the leaderboard`);
           failures = 0;
+          refusedUntil = 0;
+          refusal = null;
           return null;
         },
         (error: unknown) => {
           failures++;
+          if (error instanceof FomoError && error.status === 403) {
+            refusedUntil = Date.now() + REFUSED_MS;
+            refusal = error.message;
+          }
           return error;
         },
       )
@@ -124,6 +151,24 @@ export function startTraders(minutes = 10): void {
   };
   void tick();
 }
+
+/**
+ * What the fomo side of the screen is doing, for a reader looking at numbers that have
+ * not moved. Silence here reads exactly like a quiet leaderboard, and it took twenty
+ * hours of frozen ranks to notice the difference the first time.
+ */
+export const leaderboardState = () => {
+  let updatedAt: number | null = null;
+  for (const row of byHandle.values())
+    if (row.updated_at !== null && (updatedAt === null || row.updated_at > updatedAt)) updatedAt = row.updated_at;
+  return {
+    updated_at: updatedAt,
+    /** Set while fomo is refusing this caller; the reason as fomo gave it. */
+    refused: refusal,
+    /** Seconds until the next attempt, when there is a reason to wait. */
+    asking_again_in: refusedUntil > Date.now() ? Math.round((refusedUntil - Date.now()) / 1000) : null,
+  };
+};
 
 const walletOf = new Map(wallets.map((w) => [w.address, w]));
 

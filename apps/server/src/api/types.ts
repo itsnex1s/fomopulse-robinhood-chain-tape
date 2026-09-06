@@ -100,6 +100,8 @@ export interface Status {
   uptime: number;
   explorer: string;
   dexscreener_slug: string;
+  /** The fomo side: when its numbers last arrived, and why they stopped if they have. */
+  leaderboard: { updated_at: number | null; refused: string | null; asking_again_in: number | null };
 }
 
 /** `GET /api/traders`: our tape stats for the window, plus fomo's own numbers about the trader. */

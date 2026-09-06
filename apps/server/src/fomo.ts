@@ -47,6 +47,21 @@ const pnlOf = (entry: Entry): number | null => {
   return typeof hit?.[1] === "number" ? hit[1] : null;
 };
 
+/**
+ * A refusal that carries its status. 401 is a session that ran out and is fixed by
+ * renewing it; 403 is fomo declining this caller with a token it accepted — nothing on
+ * our side fixes that, and asking again every ten minutes is just noise at their door.
+ */
+export class FomoError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "FomoError";
+  }
+}
+
 const ask = (path: string, key: string) =>
   fetch(BASE + path, {
     headers: { Authorization: `Bearer ${key}`, "user-agent": AGENT },
@@ -64,7 +79,8 @@ async function get<T>(path: string): Promise<T> {
   }
   // The body is part of the reason: a 401 from an expired session and a 401 from a
   // request fomo would not take from this caller read the same without it.
-  if (!response.ok) throw new Error(`fomo ${path} → ${response.status} ${(await response.text()).slice(0, 160)}`);
+  if (!response.ok)
+    throw new FomoError(`fomo ${path} → ${response.status} ${(await response.text()).slice(0, 160)}`, response.status);
   const body = (await response.json()) as { responseObject?: unknown };
   return (body.responseObject ?? body) as T;
 }

@@ -1,8 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Avatar } from "./Avatar.tsx";
-import { getTraders, traderUrl } from "./api.ts";
-import { ago, compact, signed, usd, usdCompact } from "./format.ts";
+import { getStatus, getTraders, traderUrl } from "./api.ts";
+import { ago, compact, signed, span, usd, usdCompact } from "./format.ts";
 import { useUi } from "./store.ts";
 import { cell, head, num, SortHeader, sorted, tone, useSort, wide } from "./table.tsx";
 import type { Trader } from "./types.ts";
@@ -33,6 +33,14 @@ export function Traders() {
     placeholderData: keepPreviousData,
   });
 
+  // The same query the bar polls, so this is the cache and not a second request.
+  const status = useQuery({
+    queryKey: ["status", window],
+    queryFn: () => getStatus(window),
+    placeholderData: keepPreviousData,
+  });
+  const board = status.data?.leaderboard;
+
   const rows = sorted(
     (data ?? [])
       .filter((t) => !filter || t.handle.toLowerCase().includes(filter))
@@ -46,6 +54,16 @@ export function Traders() {
 
   return (
     <div>
+      {board?.refused && (
+        // Five of the columns here are fomo's, and a refused read leaves them exactly as
+        // they were: the same numbers, quietly older every minute. Said out loud instead.
+        <div className="border-b border-line px-3 py-1 text-[10px] text-down">
+          fomo is refusing this deployment, so pnl, rank, book, positions and followers are frozen
+          {board.updated_at ? ` at ${ago(board.updated_at)} old` : ""}
+          {board.asking_again_in ? ` · asking again in ${span(board.asking_again_in)}` : ""} · everything else on this
+          screen is measured on the tape
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line px-3 py-1 text-[10px] text-dimmer">
         <span>{rows.length} traders</span>
         <span>·</span>
