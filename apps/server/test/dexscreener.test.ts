@@ -55,3 +55,17 @@ test("an upstream error is thrown, not swallowed into a stale price", async () =
   answer({ error: "rate limited" }, 429);
   await expect(fetchQuotes([token])).rejects.toThrow("dexscreener 429");
 });
+
+/**
+ * An almost-empty pool prices whatever dust last crossed it. SCAMS came back at
+ * $5,014,847.29 a token against no liquidity at all, and nine airdropped fills carried
+ * $132.9 billion — the whole day's volume — until the floor went in.
+ */
+test("a quote from a pool with nothing in it is not a price", async () => {
+  answer([{ baseToken: { address: token }, priceUsd: "5014847.29", liquidity: { usd: 0 } }]);
+  expect((await fetchQuotes([token])).size).toBe(0);
+
+  // Nor one the feed reports no liquidity for at all.
+  answer([{ baseToken: { address: token }, priceUsd: "5014847.29" }]);
+  expect((await fetchQuotes([token])).size).toBe(0);
+});

@@ -256,6 +256,13 @@ export function reconstruct(receipt: ReceiptInput, ctx: ReconstructContext): Sto
 
 /** Under this, a fill nobody paid for is not worth a line of the tape. */
 const DUST_USD = 5;
+/**
+ * Wallets credited with the same amount, by one sender, in one transaction, before the
+ * transfer is a handout rather than a trade. Measured 2026-09-06: fomodoge was pushed to
+ * seventy-three wallets at a time, 81 817 459.405 each, in transactions that called the
+ * token itself — 359 fills and $3.39M of "buys" against a pool that traded $11k all day.
+ */
+const HANDED_TO = 5;
 
 /**
  * A tracker is worth spamming: a script pushes a worthless token to every wallet on the
@@ -271,9 +278,22 @@ const DUST_USD = 5;
  * whole history (`clearDust`).
  */
 function isDusting(leg: Leg, usd: number | null, paidFor: boolean, all: Transfer[], ctx: ReconstructContext): boolean {
-  if (paidFor || (usd !== null && usd >= DUST_USD)) return false;
+  if (paidFor || ctx.isStock?.(leg.token)) return false;
   if (all.some((t) => t.to === leg.counterparty && t.token !== leg.token)) return false;
-  return !ctx.isStock?.(leg.token);
+  return usd === null || usd < DUST_USD || handedOut(leg, all);
+}
+
+/**
+ * The other half of the same verdict, for a token whose pool gives the handout a price.
+ * Value cannot tell a spray from a trade — an airdrop of a token with a live pool is worth
+ * whatever the pool says — but the shape can: one sender, one amount, many wallets at once.
+ * Nobody buys the identical quantity as seventy other people in the same transaction.
+ */
+function handedOut(leg: Leg, all: Transfer[]): boolean {
+  const wallets = new Set<string>();
+  for (const t of all)
+    if (t.token === leg.token && t.from === leg.counterparty && t.value === leg.value) wallets.add(t.to);
+  return wallets.size >= HANDED_TO;
 }
 
 /** The largest single quote-token transfer within the log range, in USD. */

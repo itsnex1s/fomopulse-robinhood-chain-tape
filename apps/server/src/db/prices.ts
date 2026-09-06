@@ -1,3 +1,4 @@
+import { MIN_LIQUIDITY } from "../prices/dexscreener.ts";
 import { db } from "./connection.ts";
 
 /**
@@ -19,6 +20,8 @@ const stmt = {
        dex = COALESCE(excluded.dex, prices.dex), image_url = COALESCE(excluded.image_url, prices.image_url)`,
   ),
   allPrices: db.query<{ token: string; price_usd: number }, []>("SELECT token, price_usd FROM prices"),
+  /** Quotes from a pool too shallow to have priced anything; see MIN_LIQUIDITY in dexscreener.ts. */
+  dropThin: db.query("DELETE FROM prices WHERE COALESCE(liquidity_usd, 0) < ?"),
   /** Tokens traded recently, the ones with unpriced fills first, then the stalest quote. */
   toPrice: db.query<{ token: string }, [number, number]>(
     `SELECT f.token AS token
@@ -72,6 +75,8 @@ export const savePrice = (token: string, q: StoredQuote, at: number) =>
     $image_url: q.imageUrl ?? null,
   });
 export const loadPrices = () => new Map(stmt.allPrices.all().map((r) => [r.token, r.price_usd]));
+/** Drops the quotes no fill should ever have been priced from, and says how many went. */
+export const dropThinPrices = (floor = MIN_LIQUIDITY): number => stmt.dropThin.run(floor).changes;
 export const tokensToPrice = (sinceTs: number, limit: number) => stmt.toPrice.all(sinceTs, limit).map((r) => r.token);
 export const unpricedFills = (token: string, sinceTs: number) => stmt.unpriced.all(token, sinceTs);
 export const setEstimate = (tx: string, logIndex: number, usd: number, price: number) =>

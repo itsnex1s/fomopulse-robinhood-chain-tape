@@ -246,6 +246,9 @@ export class Tape extends DurableObject<Env> {
     app.follow();
     // Which step the pass is on, kept on the beat: a step that overstays leaves the tick
     // looking simply unfinished, and `took: 0` on `/alive` says only that, not where.
+    // Before anything is read: a deploy that changed how a fill is reconstructed or priced
+    // replays the stored receipts once, and every read after it is of the corrected tape.
+    await this.within("repair", until, app.repair());
     // A price a tick late turns an unpriced fill into a priced one, and dusting into a trade.
     await this.within("prices", until, app.prices());
     // Only when the socket cannot vouch for the gap since the last log; see app.resume.

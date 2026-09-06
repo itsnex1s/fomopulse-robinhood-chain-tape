@@ -6,6 +6,7 @@ import { toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import { prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
 import { cursor } from "../../server/src/ingest/cursor.ts";
+import { repairFills } from "../../server/src/ingest/rebuild.ts";
 import { onLogs } from "../../server/src/ingest/receipt.ts";
 import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
 import { catchUp, head, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
@@ -134,6 +135,13 @@ export async function sweep(): Promise<number> {
   recent.done(to);
   return found;
 }
+
+/**
+ * Fills written under rules that have since changed, replayed from their receipts. Runs
+ * at most once per deployment of a new rule — the object is the only thing that can reach
+ * its own storage, so there is no script to run instead.
+ */
+export const repair = (): Promise<unknown> => repairFills();
 
 export const prices = (): Promise<void> => refreshPrices(push);
 /** Drops what is past its horizon; see db/prune.ts for how long each row is kept. */

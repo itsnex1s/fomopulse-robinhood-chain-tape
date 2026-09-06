@@ -22,6 +22,14 @@ export const BATCH = 180;
  * started and never finished, and the tape sat two minutes behind the head between them.
  */
 const TIMEOUT_MS = 10_000;
+/**
+ * Under this much in the pool, the quote is not a price. An almost-empty pool prices the
+ * last dust that crossed it: measured 2026-09-06, SCAMS came back at $5,014,847.29 a token
+ * against zero liquidity, and nine airdropped fills of three thousand tokens each were
+ * recorded as $132.9 billion — 99.99% of the day's volume, from one pool nobody traded in.
+ * A token below the floor is left unpriced, which the tape already shows as a dash.
+ */
+export const MIN_LIQUIDITY = 1_000;
 
 /**
  * The chains fomo reports bags on, as DexScreener names them. The tracked chain adds
@@ -100,6 +108,8 @@ export async function fetchQuotes(tokens: string[], slug = chainConfig.dexscreen
     const price = Number(pair.priceUsd);
     if (!token || !Number.isFinite(price) || price <= 0) continue;
     const liquidity = pair.liquidity?.usd ?? null;
+    // Unknown liquidity counts as none: the feed reports it for every pool that has any.
+    if ((liquidity ?? 0) < MIN_LIQUIDITY) continue;
     // A token trades in several pools; the deepest one carries the honest price.
     const known = out.get(token);
     if (known && (known.liquidity ?? 0) >= (liquidity ?? 0)) continue;

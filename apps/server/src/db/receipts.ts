@@ -14,8 +14,8 @@ const stmt = {
   receiptByTx: db.query<{ id: number; block: number; ts: number | null }, [Uint8Array]>(
     "SELECT id, block, ts FROM receipts WHERE tx = ?",
   ),
-  allReceipts: db.query<{ id: number; tx: Uint8Array; block: number; ts: number | null }, []>(
-    "SELECT id, tx, block, ts FROM receipts ORDER BY id",
+  allReceipts: db.query<{ id: number; tx: Uint8Array; block: number; ts: number | null }, [number, number]>(
+    "SELECT id, tx, block, ts FROM receipts WHERE id > ? ORDER BY id LIMIT ?",
   ),
   insertTransfer: db.query(
     `INSERT OR IGNORE INTO transfers (receipt_id, log_index, token, sender, recipient, value)
@@ -85,9 +85,13 @@ export function getReceipt(tx: string): StoredReceipt | undefined {
 
 export const transfersOf = (receiptId: number): Transfer[] => stmt.transfersOf.all(receiptId).map(rowToTransfer);
 
-/** Every stored receipt, oldest first, without its transfers — a rebuild loads those one at a time. */
-export const allReceipts = () =>
-  stmt.allReceipts.all().map((r) => ({ id: r.id, tx: bytesToHex(r.tx) as Hex, block: r.block, ts: r.ts }));
+/**
+ * Stored receipts, oldest first, without their transfers — a rebuild loads those one at a
+ * time. Taken after an id and in a bounded run, so a replay can be spread over several
+ * passes: inside a Durable Object the whole tape at once is more than one alarm has.
+ */
+export const allReceipts = (after = 0, limit = Number.MAX_SAFE_INTEGER) =>
+  stmt.allReceipts.all(after, limit).map((r) => ({ id: r.id, tx: bytesToHex(r.tx) as Hex, block: r.block, ts: r.ts }));
 
 export const dateReceipt = (tx: string, ts: number) => stmt.dateReceipt.run(ts, bytes(tx));
 export const receiptCounts = () => stmt.receiptCounts.get()!;
