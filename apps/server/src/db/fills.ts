@@ -6,12 +6,34 @@ import { db } from "./connection.ts";
  * The tape itself — one row per fill — and the reads the screen is built from: the
  * tape with each row's card, the window in one line, and the counts the status shows.
  */
+/**
+ * How old a fill can be and still have a supply written onto it. Past this, the feed's
+ * supply is no longer a reading of the moment the fill landed, and the row is better off
+ * saying nothing and falling back than saying something it did not measure.
+ */
+const SUPPLY_MAX_AGE = 3_600;
+
 const stmt = {
   insertFill: db.query(
     `INSERT OR IGNORE INTO fills (tx, log_index, block, ts, wallet, token, side, amount, usd, price, priced, dust)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ),
   deleteFill: db.query("DELETE FROM fills WHERE tx = ? AND log_index = ?"),
+  /**
+   * The supply the feed shows for a token, written onto its fills that do not have one yet.
+   * Run when a fill lands and again when its token is quoted, because the two happen in
+   * either order: a new pool trades before the feed has heard of it.
+   *
+   * Only rows younger than the horizon, and only ones still empty. A fill from last week
+   * has no supply of its own to recover — stamping today's onto it would turn a fallback
+   * into a claim, and a receipt replay would do it to the whole fortnight at once.
+   */
+  stampSupply: db.query(
+    `UPDATE fills
+        SET supply = (SELECT market_cap / price_usd FROM prices WHERE token = ?1 AND price_usd > 0 AND market_cap IS NOT NULL)
+      WHERE token = ?1 AND supply IS NULL AND ts >= ?2
+        AND EXISTS (SELECT 1 FROM prices WHERE token = ?1 AND price_usd > 0 AND market_cap IS NOT NULL)`,
+  ),
   /**
    * Dusting by value is decided per fill, as it is reconstructed, so the first one is
    * already off the tape. This is the way back: one paid trade or one sale of the token
@@ -67,14 +89,22 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
         touched.add(f.token);
       }
     }
-    // In the same transaction as the insert that can have earned it: a token whose first
-    // paid trade or first sale just landed brings its whole dusty history back with it.
-    for (const token of touched) stmt.clearDustOf.run(token);
+    const since = Math.floor(Date.now() / 1000) - SUPPLY_MAX_AGE;
+    for (const token of touched) {
+      // In the same transaction as the insert that can have earned it: a token whose first
+      // paid trade or first sale just landed brings its whole dusty history back with it.
+      stmt.clearDustOf.run(token);
+      // And the supply is read now, while the fill is new, rather than off a feed that has
+      // moved on by the time anybody looks at the row.
+      stmt.stampSupply.run(token, since);
+    }
   })();
   return fresh;
 }
 
 export const deleteFill = (tx: string, logIndex: number) => stmt.deleteFill.run(tx, logIndex);
+/** A quote arriving after the fills it belongs to; the price pass calls this with its own horizon. */
+export const stampSupply = (token: string, notBefore: number) => stmt.stampSupply.run(token, notBefore);
 export const tapeStats = (sinceTs: number) => stmt.tapeStats.all(sinceTs);
 export const counts = () => stmt.counts.get()!;
 
@@ -114,6 +144,8 @@ export interface TapeRow extends Card {
   priced: Priced;
   /** The pool the quote came from; the API turns it into a link. */
   pair_address: string | null;
+  /** The market cap this fill landed at; see the SELECT. */
+  mcap_at: number | null;
 }
 
 /**
@@ -127,6 +159,10 @@ const TAPE_SELECT = `
          f.amount, f.usd, f.price, f.priced, f.dust,
          p.price_usd AS mark, p.liquidity_usd AS liquidity, p.pair_address, p.pair_created_at,
          p.change24, p.change1h, p.volume24, p.buys24, p.sells24, p.market_cap, p.dex, p.image_url,
+         /* What the whole token was worth when this fill landed: its own price over the supply
+            stamped on it. A row from before the column has none, and falls back to the supply
+            the feed shows now — the same number the screen used to work out for itself. */
+         f.price * COALESCE(f.supply, p.market_cap / NULLIF(p.price_usd, 0)) AS mcap_at,
          CASE WHEN f.side = 'buy' AND NOT EXISTS (
            SELECT 1 FROM fills q WHERE q.wallet = f.wallet AND q.token = f.token AND q.side = 'buy' AND q.ts < f.ts
          ) THEN 1 ELSE 0 END AS new_position,

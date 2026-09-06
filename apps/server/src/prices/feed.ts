@@ -1,5 +1,5 @@
 import type { Address } from "viem";
-import { loadPrices, savePrice, setEstimate, tokensToPrice, unpricedFills } from "../db.ts";
+import { loadPrices, savePrice, setEstimate, stampSupply, tokensToPrice, unpricedFills } from "../db.ts";
 import { log } from "../log.ts";
 import { BATCH, fetchQuotes } from "./dexscreener.ts";
 import { FLOATING, noteEthUsd } from "./eth.ts";
@@ -32,6 +32,9 @@ export async function refreshPrices(onRepriced: (txs: string[]) => void): Promis
     }
     savePrice(token, quote, now);
     prices.set(token, quote.price);
+    // A new pool trades before the feed has heard of it, so its first fills landed with no
+    // supply to stamp. This is the other order the two can happen in.
+    stampSupply(token, now - ESTIMATE_MAX_AGE);
     for (const fill of unpricedFills(token, now - ESTIMATE_MAX_AGE)) {
       setEstimate(fill.tx, fill.log_index, fill.amount * quote.price, quote.price);
       touched.add(fill.tx);

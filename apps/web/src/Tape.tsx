@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { Avatar } from "./Avatar.tsx";
 import { getTape, tokenUrl, traderUrl, txUrl } from "./api.ts";
-import { type Links, mcapAt, NEW_POOL_S, poolAge, THIN_LIQUIDITY, TokenCard, TraderCard, vsNowPct } from "./cards.tsx";
+import { type Links, NEW_POOL_S, poolAge, THIN_LIQUIDITY, TokenCard, TraderCard, vsNowPct } from "./cards.tsx";
 import { clock, compact, pct, price, short, usd, usdCompact } from "./format.ts";
 import { Hover } from "./Hover.tsx";
 import { useTape, useUi } from "./store.ts";
@@ -31,7 +31,8 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
   const side = buy ? "text-up" : "text-down";
   const tint = buy ? "rgba(47,208,138,0.13)" : "rgba(255,84,112,0.13)";
   const vsNow = vsNowPct(fill);
-  const mcap = mcapAt(fill);
+  // Measured when the fill landed, not worked out here from a feed that has moved since.
+  const mcap = fill.mcap_at;
   const age = poolAge(fill, fill.ts);
   const launch = age !== null && age < NEW_POOL_S;
   const thin = fill.liquidity !== null && fill.liquidity < THIN_LIQUIDITY;

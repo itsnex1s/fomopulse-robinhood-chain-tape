@@ -23,6 +23,16 @@ export const SCHEMA = `
     tx TEXT NOT NULL, log_index INTEGER NOT NULL, block INTEGER NOT NULL, ts INTEGER NOT NULL,
     wallet TEXT NOT NULL, token TEXT NOT NULL, side TEXT NOT NULL,
     amount REAL NOT NULL, usd REAL, price REAL, priced TEXT NOT NULL,
+    /**
+     * The token's whole supply as the feed implied it when this fill landed, stamped once
+     * and never touched again: the fill's own price over it is the market cap it was
+     * bought at. Everything else on a row can be worked out later from a receipt or asked
+     * of a feed that answers for the token now — this cannot. A token that burns supply
+     * after a trade leaves nothing behind that says what the supply used to be, and the
+     * market cap taken over today's would read lower than the one that was paid.
+     * NULL on a row older than the column, which falls back to the feed's supply now.
+     */
+    supply REAL,
     /** Dusting, decided when the fill is reconstructed and cleared if the token turns out real. */
     dust INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (tx, log_index)

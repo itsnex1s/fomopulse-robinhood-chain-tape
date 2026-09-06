@@ -57,6 +57,13 @@ export interface Fill {
   buys24: number | null;
   sells24: number | null;
   market_cap: number | null;
+  /**
+   * What the whole token was worth when this fill landed, which is not what it is worth
+   * now: `market_cap` is the feed's, as of its last quote. Taken over the supply stamped
+   * on the fill when it arrived, so a token that burns supply afterwards does not make
+   * the entry look cheaper than it was.
+   */
+  mcap_at: number | null;
   dex: string | null;
   image_url: string | null;
   /** The original carries this and its own client ignores it; here for a drop-in client. */

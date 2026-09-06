@@ -58,6 +58,7 @@ export function toFill(row: TapeRow): Fill {
     buys24: row.buys24,
     sells24: row.sells24,
     market_cap: row.market_cap,
+    mcap_at: row.mcap_at,
     dex: row.dex,
     image_url: row.image_url ?? stock?.logo ?? null,
     // The original carries this and its own client ignores it; here for a drop-in client.
