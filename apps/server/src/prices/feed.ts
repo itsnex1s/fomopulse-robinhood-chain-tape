@@ -6,7 +6,7 @@ import {
   setEstimate,
   stampSupply,
   tokensToPrice,
-  unpricedFills,
+  unpricedByToken,
 } from "../db.ts";
 import { limits, ms } from "../limits.ts";
 import { log } from "../log.ts";
@@ -26,7 +26,15 @@ const ESTIMATE_MAX_AGE = 3_600;
 /** One pass: quote the most stale tokens, then price the fills that were waiting. */
 export async function refreshPrices(onRepriced: (txs: string[]) => void): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  const wanted = tokensToPrice(now - DAY, BATCH - (FLOATING ? 1 : 0)) as Address[];
+  const from = now - ESTIMATE_MAX_AGE;
+  // The fills still owed a price, once for the whole window. Their tokens go first — a fill
+  // with no dollars on it is the one thing a quote actually changes — and the stalest quotes
+  // of everything else that traded today fill the rest of the call.
+  const waiting = unpricedByToken(from);
+  const room = BATCH - (FLOATING ? 1 : 0);
+  const owed = [...waiting.keys()].slice(0, room);
+  const stale = tokensToPrice(now - DAY, room).filter((token) => !waiting.has(token));
+  const wanted = [...owed, ...stale].slice(0, room) as Address[];
   // The floating quote token rides along whenever a call goes out anyway: the receipt
   // path prices WETH cash legs from it, and a quote it already has is a request it does
   // not make. An idle tape still makes no call at all.
@@ -43,16 +51,15 @@ export async function refreshPrices(onRepriced: (txs: string[]) => void): Promis
     prices.set(token, quote.price);
     // A new pool trades before the feed has heard of it, so its first fills landed with no
     // supply to stamp. This is the other order the two can happen in.
-    stampSupply(token, now - ESTIMATE_MAX_AGE);
-    let repriced = false;
-    for (const fill of unpricedFills(token, now - ESTIMATE_MAX_AGE)) {
+    stampSupply(token, from);
+    const fills = waiting.get(token);
+    for (const fill of fills ?? []) {
       setEstimate(fill.tx, fill.log_index, fill.amount * quote.price, quote.price);
       touched.add(fill.tx);
-      repriced = true;
     }
     // A buy that had no dollars now has some, and a dusted one can have been pardoned: both
     // are what a position costs. Only when something moved — this runs every fifteen seconds.
-    if (repriced) refreshPositions([token]);
+    if (fills !== undefined && fills.length > 0) refreshPositions([token]);
   }
   if (touched.size > 0) onRepriced([...touched]);
 }

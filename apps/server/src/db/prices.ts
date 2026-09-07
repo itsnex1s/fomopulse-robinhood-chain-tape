@@ -20,17 +20,27 @@ const stmt = {
   allPrices: db.query<{ token: string; price_usd: number }, []>("SELECT token, price_usd FROM prices"),
   /** Quotes from a pool too shallow to have priced anything; see MIN_LIQUIDITY in dexscreener.ts. */
   dropThin: db.query("DELETE FROM prices WHERE COALESCE(liquidity_usd, 0) < ?"),
-  /** Tokens traded recently, the ones with unpriced fills first, then the stalest quote. */
+  /**
+   * Quoted tokens whose quote is the stalest, of the ones this tape saw trade inside the
+   * window. Read off `prices`, which holds one row per token this tape has ever priced — a few
+   * hundred — and asks the fills only whether each of them traded, which stops at the first fill
+   * it finds. Grouping the window's fills by token instead was a scan of every fill on the tape,
+   * four times a minute, and the most expensive thing this object did.
+   *
+   * A token with no quote yet is not here and does not need to be: its own fills are unpriced,
+   * and `unpricedByToken` puts those at the front of the same queue.
+   */
   toPrice: db.query<{ token: string }, [number, number]>(
-    `SELECT f.token AS token
-       FROM fills f LEFT JOIN prices p ON p.token = f.token
-      WHERE f.ts >= ?
-      GROUP BY f.token
-      ORDER BY SUM(f.priced = 'unpriced') > 0 DESC, COALESCE(p.updated_at, 0) ASC
-      LIMIT ?`,
+    `SELECT p.token AS token FROM prices p
+      WHERE EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?1)
+      ORDER BY p.updated_at ASC
+      LIMIT ?2`,
   ),
-  unpriced: db.query<{ tx: string; log_index: number; amount: number }, [string, number]>(
-    "SELECT tx, log_index, amount FROM fills WHERE token = ? AND priced = 'unpriced' AND ts >= ?",
+  /** Every fill still owed a price, across the whole window at once: the quote pass has a
+   *  hundred and eighty tokens in hand and wants the few of them this mentions, which is one
+   *  read rather than one read per token. */
+  unpriced: db.query<{ token: string; tx: string; log_index: number; amount: number }, [number]>(
+    "SELECT token, tx, log_index, amount FROM fills WHERE priced = 'unpriced' AND ts >= ?",
   ),
   /** A fill priced after it landed was dusted with no value to judge, so the arriving price finishes that
    *  decision here. Only the value verdict is reversed: a handout is a verdict about shape, which a price
@@ -83,7 +93,17 @@ export const loadPrices = () => new Map(stmt.allPrices.all().map((r) => [r.token
 /** Drops the quotes no fill should ever have been priced from, and says how many went. */
 export const dropThinPrices = (floor = MIN_LIQUIDITY): number => stmt.dropThin.run(floor).changes;
 export const tokensToPrice = (sinceTs: number, limit: number) => stmt.toPrice.all(sinceTs, limit).map((r) => r.token);
-export const unpricedFills = (token: string, sinceTs: number) => stmt.unpriced.all(token, sinceTs);
+/** The fills of the window that no price has reached, by token. */
+export function unpricedByToken(sinceTs: number): Map<string, { tx: string; log_index: number; amount: number }[]> {
+  const waiting = new Map<string, { tx: string; log_index: number; amount: number }[]>();
+  for (const row of stmt.unpriced.all(sinceTs)) {
+    const list = waiting.get(row.token);
+    if (list === undefined) waiting.set(row.token, [row]);
+    else list.push(row);
+  }
+  return waiting;
+}
+
 /** Writes to a fill, so the caller owes `refreshPositions` for its token afterwards: what a
  *  buy cost is a position column, and this is the statement that gives an unpriced buy a cost. */
 export const setEstimate = (tx: string, logIndex: number, usd: number, price: number) =>

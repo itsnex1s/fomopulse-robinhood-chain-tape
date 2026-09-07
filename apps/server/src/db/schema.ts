@@ -46,6 +46,12 @@ export const SCHEMA = `
    */
   CREATE INDEX IF NOT EXISTS fills_dusty ON fills (token) WHERE dust = 1;
   CREATE INDEX IF NOT EXISTS fills_unstamped ON fills (token, ts) WHERE supply IS NULL;
+  /**
+   * The fills a quote is still owed, time first: the quote pass asks this of the whole window
+   * at once and then looks up the hundred and eighty tokens it has in hand, which is one read
+   * rather than one read per token, four times a minute.
+   */
+  CREATE INDEX IF NOT EXISTS fills_unpriced ON fills (ts, token) WHERE priced = 'unpriced';
   CREATE TABLE IF NOT EXISTS prices (
     token TEXT PRIMARY KEY, price_usd REAL NOT NULL, liquidity_usd REAL, change24 REAL,
     pair_created_at INTEGER, pair_address TEXT, updated_at INTEGER NOT NULL,

@@ -46,3 +46,25 @@ test("the supply stamp reads the unstamped rows of a token, not every row of it"
   expect(detail).toContain("fills_unstamped");
   expect(detail).not.toContain("SCAN fills");
 });
+
+test("choosing what to quote reads the quotes, not every fill on the tape", () => {
+  const detail = plan(
+    `SELECT p.token AS token FROM prices p
+      WHERE EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?1)
+      ORDER BY p.updated_at ASC
+      LIMIT ?2`,
+    0,
+    10,
+  );
+  // One row per token ever priced, and the fills asked only whether each of them traded.
+  expect(detail).toContain("SCAN p");
+  expect(detail).toContain("SEARCH f USING COVERING INDEX fills_token_ts (token=? AND ts>?)");
+  expect(detail).not.toContain("SCAN fills");
+  expect(detail).not.toContain("SCAN f USING");
+});
+
+test("the fills owed a price are read by time, not token by token", () => {
+  const detail = plan("SELECT token, tx, log_index, amount FROM fills WHERE priced = 'unpriced' AND ts >= ?", 0);
+  expect(detail).toContain("fills_unpriced");
+  expect(detail).not.toContain("SCAN fills");
+});
