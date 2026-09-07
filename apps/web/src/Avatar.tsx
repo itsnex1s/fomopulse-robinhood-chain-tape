@@ -19,16 +19,19 @@ export const Avatar = memo(function Avatar({
   seed: string;
   size?: number;
 }) {
-  const [broken, setBroken] = useState(false);
+  // Which picture failed, not whether one did: the component is memoized on the wallet, so a
+  // row whose avatar arrives later — fomo publishes them a pass after the leaderboard — kept
+  // the identicon for the life of that key once a single 404 had been seen.
+  const [failed, setFailed] = useState<string | null>(null);
 
-  if (src && !broken) {
+  if (src && failed !== src) {
     return (
       <img
         src={src}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => setBroken(true)}
+        onError={() => setFailed(src)}
         className="inline-block shrink-0 rounded-[2px] object-cover align-[-2px]"
         style={{ width: size, height: size }}
       />
