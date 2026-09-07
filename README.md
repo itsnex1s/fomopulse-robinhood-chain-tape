@@ -79,6 +79,11 @@ tokens whose pool opened in the last three days, ordered by how many of those wa
 bought in. It says who bought, not that a token is safe: there is no contract analysis
 behind it, only this tape and the pool's own depth.
 
+Each screen has its own address — `/`, `/traders`, `/bags`, `/discover` — and the window and
+the filter travel with it, so `/discover?window=7d` and `/bags?q=MARS` are links you can send.
+Back and forward walk them, and typing in the filter does not fill the history with an entry
+per letter.
+
 `1`–`5` pick the window every screen counts in, `t` shows or hides tokenised stocks, `d`
 the dusting — tokens nobody paid for, pushed to every tracked wallet — and `/` filters by
 trader or token. A phone has no hover, so a tap opens the token and trader cards under the

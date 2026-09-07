@@ -4,7 +4,9 @@ import { blockUrl } from "./api.ts";
 import { ago, usdCompact } from "./format.ts";
 import { useTape, useUi, VIEWS, WINDOWS } from "./store.ts";
 import type { Status } from "./types.ts";
+import { placeUrl } from "./url.ts";
 import type { Feed } from "./useFeed.ts";
+import { chorded } from "./useHotkeys.ts";
 
 /** A clock of the bar's own: the quiet counter has to keep counting between polls. */
 function useSecond(): void {
@@ -89,15 +91,22 @@ export function StatusBar({
 
       <span className="text-dimmer">·</span>
       {VIEWS.map((option) => (
-        <button
+        <a
           key={option}
-          type="button"
+          href={placeUrl({ view: option, window, filter })}
           title="keys [ and ]"
+          aria-current={option === view ? "page" : undefined}
           className={`px-1 py-1 text-[13px] sm:p-0 sm:text-[11px] ${option === view ? "text-fg" : "hover:text-fg"}`}
-          onClick={() => set({ view: option })}
+          onClick={(event) => {
+            // A held modifier or anything but the left button is the browser's: that is how a
+            // screen gets opened in a new tab, and an anchor that swallows it is not a link.
+            if (chorded(event) || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            set({ view: option });
+          }}
         >
           {option}
-        </button>
+        </a>
       ))}
       <span className="hidden text-dimmer sm:inline">·</span>
       {status && (

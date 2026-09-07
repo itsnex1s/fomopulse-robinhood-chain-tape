@@ -3,6 +3,8 @@
  * and `/api/*` answered from the cache of the colo it arrived in, which is what keeps a
  * thousand polling readers down to one request per colo per cache window.
  */
+
+import { isViewPath } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
 import { canonical, throttled, tooMany } from "./cache.ts";
 import type { Env } from "./env.ts";
@@ -73,7 +75,12 @@ export default {
     // The socket is an object request like any other, and one nothing caches.
     if (url.pathname === "/ws")
       return (await throttled(env.OBJECT_LIMIT, request)) === "over" ? tooMany() : tape(env).fetch(request);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) {
+      // The app draws four screens and the assets hold one page, so a screen's own address
+      // is answered with that page. Everything else the assets do not have stays a 404.
+      const shell = isViewPath(url.pathname) ? new Request(new URL("/", url).toString(), request) : request;
+      return env.ASSETS.fetch(shell);
+    }
 
     const response = await answer(request, env, ctx, url);
     // robots.txt lets a crawler read the two endpoints the first paint needs; this keeps

@@ -9,6 +9,7 @@ import { Tape } from "./Tape.tsx";
 import { Traders } from "./Traders.tsx";
 import { useFeed } from "./useFeed.ts";
 import { useHotkeys } from "./useHotkeys.ts";
+import { useUrl } from "./useUrl.ts";
 
 export default function App() {
   const filterRef = useRef<HTMLInputElement>(null);
@@ -20,6 +21,7 @@ export default function App() {
   const view = useUi((state) => state.view);
   const feed = useFeed();
   useHotkeys(filterRef);
+  useUrl();
 
   // One poll for the whole bar: the fills arrive over the socket, so the tape is fetched on a
   // window change and not again on focus, where a refetch would reset 400 rows for nothing.

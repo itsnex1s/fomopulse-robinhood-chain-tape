@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Fill, Window } from "./types.ts";
+import { DEFAULT_WINDOW, HOME, type Place, readPlace, VIEWS, type View, WINDOWS } from "./url.ts";
 
 /** Capped like the original: 400 rows, oldest dropped, until a reader loads older ones. */
 export const MAX_ROWS = 400;
@@ -114,11 +115,16 @@ export const useTape = create<TapeState>((set) => ({
   flush: () => set((state) => ({ ...merge(state, state.pending), pending: [] })),
 }));
 
-export type View = "tape" | "traders" | "bags" | "discover";
+/** The screens and the windows are the address bar's vocabulary; they are defined with it. */
+export { VIEWS, type View, WINDOWS };
 
-/** The order the keys walk them in: 1–5 for the windows, [ and ] for the views. */
-export const WINDOWS: Window[] = ["1h", "24h", "7d", "30d", "all"];
-export const VIEWS: View[] = ["tape", "traders", "bags", "discover"];
+/** Where the address says to start. A path no screen answers to never reaches the app —
+ *  both runtimes 404 it — so the fallback is only for a store built without a document. */
+const start: Place = readPlace(typeof location === "undefined" ? "/" : location.href) ?? {
+  view: HOME,
+  window: DEFAULT_WINDOW,
+  filter: "",
+};
 
 interface UiState {
   window: Window;
@@ -132,13 +138,25 @@ interface UiState {
 export const useUi = create<UiState>()(
   persist(
     (set) => ({
-      window: "24h",
+      window: start.window,
       stocks: true,
       dust: false,
-      filter: "",
-      view: "tape",
+      filter: start.filter,
+      view: start.view,
       set: (patch) => set(patch),
     }),
-    { name: "fomopulse.ui", partialize: ({ window, stocks, dust, view }) => ({ window, stocks, dust, view }) },
+    {
+      name: "fomopulse.ui",
+      // The screen is the address now, so storing it would only give a shared link something
+      // to argue with. What is left is preference: the toggles, and the window to open a bare
+      // address in.
+      partialize: ({ window, stocks, dust }) => ({ window, stocks, dust }),
+      // Storage supplies what the address does not say, never the other way round: rehydration
+      // runs after the state above is built and would otherwise undo the link that was opened.
+      merge: (persisted, current) => {
+        const stored = { ...current, ...(persisted as Partial<UiState>) };
+        return { ...stored, ...(readPlace(typeof location === "undefined" ? "/" : location.href, stored) ?? {}) };
+      },
+    },
   ),
 );

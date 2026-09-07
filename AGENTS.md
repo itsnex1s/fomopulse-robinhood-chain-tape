@@ -68,6 +68,12 @@ Object: one alarm every fifteen seconds is its pulse, and it prices, catches up,
 fomo on clocks kept in its own storage. `apps/worker/src/index.ts` is the edge in front of it,
 serving the built SPA, forwarding `/ws`, and answering `/api/*` out of the colo cache.
 
+**Addresses.** Each screen is a path — `/`, `/traders`, `/bags`, `/discover` — and the two things
+worth sending somebody are the query: `?window=` and `?q=`. `apps/web/src/url.ts` is the whole
+vocabulary and `useUrl.ts` keeps it in step with the store; the address wins on arrival and on back
+and forward, and storage only fills in what it does not say. Both runtimes answer a screen's own
+path with the app shell and everything else with a 404, from the one list in `api/views.ts`.
+
 **API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/discover`, `/api/limits`,
 `/api/alive`,
 plus `/ws` for the live push. All take `window` and most take `limit`; the tape also takes
@@ -231,6 +237,10 @@ exports. A module with no exports listed is an entry point that runs on import.
 
     36 types.ts         Fill Trader Bag Discover Status Overview Window Side Priced
                         The entire wire contract. No imports, by design.
+    36b views.ts        VIEW_PATHS isViewPath
+                        The addresses the app draws itself, which both runtimes answer with the
+                        shell. Kept in step with url.ts on the web side and with the Worker's
+                        run_worker_first, which a test holds it to.
     37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
     37b budget.ts       spend walked meterRows projected pressure stretch budget BUDGET
@@ -277,7 +287,12 @@ exports. A module with no exports listed is an entry point that runs on import.
     49 store.ts         useTape useUi Row View VIEWS WINDOWS MAX_ROWS
                                          The tape store and the persisted UI store.
     50 useFeed.ts       useFeed Feed     One WebSocket for the app, writing straight into the store.
-    51 useHotkeys.ts    useHotkeys       Global keys for window, view and filter.
+    51 useHotkeys.ts    useHotkeys chorded
+                                         Global keys for window, view and filter.
+    51b url.ts          readPlace placeUrl viewOf titleOf pushes VIEWS WINDOWS HOME
+                        DEFAULT_WINDOW View Place
+                                         Where the reader is, spelled as an address.
+    51c useUrl.ts       useUrl           The address bar and the store, kept in step.
     52 api.ts           getTape getStatus getTraders getBags getOverview chainName bagUrl
                         tokenUrl txUrl blockUrl tokenExplorerUrl traderUrl fomoTokenUrl
                         TRACKED_CHAIN
