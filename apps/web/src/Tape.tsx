@@ -236,7 +236,7 @@ export function Tape({ explorer, slug }: Links) {
     <table className="w-full border-collapse text-[11px] sm:text-[12px]">
       <thead>
         <tr>
-          <th className={head} title="when the fill landed, on your clock">
+          <th className={head} title="when the fill landed, in New York time">
             time
           </th>
           <th className={`${head} ${roomy}`} title="what the tracked wallet did with the token: bought it, or sold it">
