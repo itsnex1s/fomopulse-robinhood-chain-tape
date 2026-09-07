@@ -40,10 +40,21 @@ export function parse(receipt: ReceiptInput): ParsedReceipt {
 
 const addressFromTopic = (t: Hex) => `0x${t.slice(26)}`.toLowerCase() as Address;
 
+/**
+ * One uint256 word, which is what an ERC-20 `Transfer` carries. Three topics do not settle
+ * it on their own: `Transfer(address indexed, address indexed)` has three as well and puts
+ * nothing in `data`, and `BigInt("0x")` throws rather than returning zero. Thrown from here
+ * the error travelled all the way out of the per-transaction read, which retries five times
+ * and then leaves the transaction in flight — so one such log anywhere in a tracked wallet's
+ * transaction cost the real fills in it and pinned the resume cursor at that block.
+ */
+const VALUE = /^0x[0-9a-fA-F]{1,64}$/;
+
 export function transfers(receipt: RawReceipt): Transfer[] {
   const out: Transfer[] = [];
   for (const log of receipt.logs) {
     if (log.topics[0] !== TRANSFER_TOPIC || log.topics.length !== 3) continue;
+    if (!VALUE.test(log.data)) continue;
     out.push({
       logIndex: Number(log.logIndex),
       token: log.address.toLowerCase() as Address,
