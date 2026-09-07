@@ -57,7 +57,8 @@ export class Tape extends DurableObject<Env> {
      */
     rows: {} as Record<string, number>,
   };
-  /** Rows each route has walked since the object started; see `answer`. */
+  /** Rows each route and each step of the pass has walked since the object started, so what
+   *  the two do not account for is the chain arriving. See `answer` and `within`. */
   private spent: Record<string, number> = {};
   /** One tick at a time, whoever asked for it — until the one in flight overstays. */
   private running?: { started: number; done: Promise<void> };
@@ -184,7 +185,11 @@ export class Tape extends DurableObject<Env> {
     this.beat.step = step;
     const walked = rowsRead();
     const count = () => {
-      this.beat.rows[step] = (this.beat.rows[step] ?? 0) + (rowsRead() - walked);
+      const rows = rowsRead() - walked;
+      this.beat.rows[step] = (this.beat.rows[step] ?? 0) + rows;
+      // And on the running total beside the routes, so what is left over is the chain
+      // arriving and nothing else. A pass this one did not run still spent its rows.
+      this.spent[`pass:${step}`] = (this.spent[`pass:${step}`] ?? 0) + rows;
     };
     const left = until - Date.now();
     if (left <= 0) {
