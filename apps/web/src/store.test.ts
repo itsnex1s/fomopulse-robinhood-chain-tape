@@ -73,3 +73,22 @@ test("a page already on the screen is not appended twice", () => {
   older([fill(9, "0xnew", 1), fill(8, "0xmid", 1)]);
   expect(useTape.getState().ids).toEqual(["0xnew:9", "0xmid:8"]);
 });
+
+test("a reprice of a fill that has aged off the screen does not come back at the top", () => {
+  // The server reprices fills up to an hour old and broadcasts the whole transaction, so
+  // one already dropped from the buffer arrives as a fill the store has never seen. Put at
+  // the top it read as a fresh trade, flashing above rows twenty minutes newer.
+  useTape.getState().reset([fill(50, "0xnew", 10), fill(40, "0xmid", 10)]);
+  const before = useTape.getState().ids;
+
+  useTape.getState().push([fill(1, "0xold", 25)]);
+
+  expect(useTape.getState().ids[0]).toBe(before[0]); // the newest row is still the newest
+  expect(useTape.getState().ids).toEqual([...before, "0xold:1"]); // it lands under them
+  expect(useTape.getState().byId["0xold:1"]!.tick).toBe(false); // and does not blink
+
+  // Once the tape is full, a row that belongs below the bottom is simply not carried.
+  useTape.setState({ cap: 3 });
+  useTape.getState().push([fill(0, "0xolder", 5)]);
+  expect(useTape.getState().ids).not.toContain("0xolder:0");
+});

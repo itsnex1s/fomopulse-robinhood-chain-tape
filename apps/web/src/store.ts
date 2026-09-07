@@ -34,9 +34,20 @@ function merge(state: Merged, fills: Fill[]): Merged {
   if (fills.length === 0) return state;
   const byId = { ...state.byId };
   let ids = state.ids;
+  // The bottom of what is on screen. The server reprices fills up to an hour old and sends
+  // the whole transaction again, so one that has already aged off arrives as a fill this
+  // store has never seen — and it is not new.
+  const oldest = ids.length > 0 ? (byId[ids[ids.length - 1]!]?.ts ?? 0) : 0;
   for (const fill of fills) {
     const key = keyOf(fill);
     const known = byId[key];
+    if (!known && fill.ts < oldest) {
+      // Below the last row the screen holds: it belongs under them, or nowhere.
+      if (ids.length >= state.cap) continue;
+      byId[key] = { ...fill, key, tick: false };
+      ids = [...ids, key];
+      continue;
+    }
     // A repriced fill comes back with the same key: replace it in place, do not blink.
     byId[key] = { ...fill, key, tick: known ? known.tick : true };
     if (!known) ids = [key, ...ids];
