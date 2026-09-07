@@ -35,7 +35,7 @@ Three packages and a scripts folder. Dependencies run one way:
     apps/server  →  config/*.json
 
 `apps/server` never imports from `apps/worker` or `apps/web`. `config/*.json` is data, imported
-directly with JSON import attributes and validated at `config.ts`.
+directly with JSON import attributes and validated at `config.ts` and `limits.ts`.
 
 Runtime dependencies are four: `viem` and `hono` on the server, `react`, `react-dom`,
 `@tanstack/react-query` and `zustand` on the web. `bun:sqlite` is the database on Bun; the Worker
@@ -74,6 +74,15 @@ plus `/ws` for the live push. All take `window` and most take `limit`; the tape 
 `stocks`, `dust` and a `before`/`beforeId` cursor. `api/types.ts` is the single definition of every
 response, re-exported type-only by the web app, so a renamed field fails the typecheck on both sides.
 
+**What the readers cost.** Two caches and a ceiling stand between a burst of them and the bill.
+The object memoises each answer for its window's lifetime; the colo in front of it holds the
+answer for as long as the `x-ttl` header asks, keyed on a canonical query — only the parameters
+the API reads, only the values it allows, a row count rounded up to the next step — so the cache
+cannot be walked past one row at a time. What a month is on course to walk is measured off the
+storage's own count of rows and stretches both lifetimes in proportion once it passes the plan's
+allowance, and the platform's rate limiter caps what one address can make the object do, which
+is the one thing a cache cannot bound: every value of a cursor is a different, valid page.
+
 **Tables.** `receipts` holds what the chain said, its ERC-20 transfers packed into one value on
 the row rather than a row apiece — nothing queries them, and a row apiece was seven eighths of
 everything this tape writes; `fills` is the tape; `tokens`,
@@ -96,10 +105,11 @@ exports. A module with no exports listed is an entry point that runs on import.
 
 ### apps/server/src — core
 
-    0  limits.ts        limits ms Limits Ladder validateLimits
+    0  limits.ts        limits ms WINDOWS Limits Ladder validateLimits
                         Every operational number in one place, validated on the way in: retention,
                         the job clocks, the sweep range, what the feed is asked for, how long an
-                        answer is held, what a month may spend. Served at /api/limits. The
+                        answer is held at either cache, what one address may ask of the object,
+                        what a month may spend. Served at /api/limits. The
                         constants that decide what a fill IS are not here — they live beside the
                         rule they belong to.
     1  config.ts        chain chainConfig configure wallets fomoConfig QUOTE_TOKENS WALLET_LIST
@@ -169,9 +179,12 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The entire DDL. No migrations; a mismatched database is deleted.
     24 meta.ts          getMeta setMeta
                         Key-value rows that survive a restart: the cursor, the source, the session.
-    24b logs.ts         packTransfers unpackTransfers carryTransfersOntoReceipts
+    24b logs.ts         packTransfers unpackTransfers carryTransfersOntoReceipts legacyTransfers
+                        migrating
                         How a receipt's transfers are packed onto it, and how a database from
-                        before that carries its rows across before the old table is dropped.
+                        before that carries its rows across, a bounded slice at a time, before
+                        the old table is dropped. A receipt the carry has not reached is read
+                        where its transfers still are.
     25 receipts.ts      saveReceipt getReceipt allReceipts transfersOf dateReceipt saveToken
                         saveKind loadDecimals loadKinds namelessTokens receiptCounts StoredReceipt
                         Receipts, transfers, token decimals and names, address kinds.
@@ -220,12 +233,16 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The entire wire contract. No imports, by design.
     37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
-    37b budget.ts       spend projected pressure stretch budget BUDGET MAX_STRETCH resetBudget
-                        What the month is on course to walk, said by the answers themselves, and
-                        how much longer to hold them for it.
-    38 routes.ts        api
-                        The Hono app: the eight GET routes, and the in-process memo in front of
-                        them, whose lifetimes come from config/limits.json.
+    37b budget.ts       spend walked meterRows projected pressure stretch budget BUDGET
+                        MAX_STRETCH resetBudget
+                        What the month is on course to walk — the storage's own count of rows
+                        where the platform keeps one, the answers' own word for it where it does
+                        not — and how much longer to hold them for it. The stretch reaches the
+                        edge cache through the `x-ttl` header routes.ts sets.
+    38 routes.ts        api COUNTED MARKED ttlBy
+                        The Hono app: the eight GET routes, the in-process memo in front of them,
+                        and the `x-ttl` every answer carries for the edge. All the lifetimes come
+                        from config/limits.json.
     39 ws.ts            websocket broadcast
                         Bun's pub/sub socket handlers.
     40 static.ts        site
@@ -234,17 +251,22 @@ exports. A module with no exports listed is an entry point that runs on import.
 ### apps/worker/src — the Cloudflare runtime
 
     41 index.ts         (entry)
-                        The edge: assets, the /ws forward, and the per-prefix colo cache for /api/*.
+                        The edge: assets, the /ws forward, and the colo cache for /api/*, keyed on
+                        the canonical query and held for as long as the object asks.
+    41b cache.ts        canonical throttled tooMany RateLimiter Verdict
+                        What the edge decides before the object is reached: the canonical query an
+                        answer is filed under, and whether this address has had its minute of it.
     42 tape.ts          Tape
                         The Durable Object: the alarm pulse, the pass budget, the deduplication slot,
                         the beat that /api/alive reports, and the hibernating reader sockets.
-    43 app.ts           boot follow resume sweep prices quotes traders repair prune session
+    43 app.ts           boot follow resume sweep prices quotes traders repair carry prune session
                         wallet_count
                         The ingestion glue for the object, and the re-export of the Hono app.
     44 socket.ts        upgrade
                         A client WebSocket over fetch upgrade, which the Worker has and Bun does not.
-    45 sqlite.ts        Database use bytesUsed
-                        The bun:sqlite shim over Durable Object SQL storage.
+    45 sqlite.ts        Database use bytesUsed rowsRead
+                        The bun:sqlite shim over Durable Object SQL storage, and the storage's own
+                        count of every row walked, which is what the bill is made of.
     46 env.ts           Env Secrets
                         The binding and secret types.
 
