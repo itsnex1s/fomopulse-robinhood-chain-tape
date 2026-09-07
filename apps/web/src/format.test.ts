@@ -39,4 +39,9 @@ test("a fraction of a share is not zero", () => {
   expect(amount(0.01128)).toBe("0.0113");
   expect(amount(0.00000184)).toBe("0.00000184");
   expect(amount(0)).toBe("0");
+  // Rounding to three significant digits turned a fraction of a share into a whole one.
+  expect(amount(0.9999)).toBe("0.999");
+  expect(amount(0.99999999)).toBe("0.999");
+  // and everything short of that boundary still rounds as it did
+  expect(amount(0.995)).toBe("0.995");
 });

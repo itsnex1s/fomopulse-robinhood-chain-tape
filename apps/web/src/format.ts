@@ -3,6 +3,8 @@ const usdFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const priceFormat = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 4 });
 const smallFormat = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 3 });
+/** The same, cut rather than rounded, for the one case where rounding would cross a whole number. */
+const smallTruncFormat = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 3, roundingMode: "trunc" });
 /** The original stamps every row in New York time, whoever is watching. */
 const clockFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -39,7 +41,13 @@ export const compact = (value: number) => compactFormat.format(value);
  * Compact above one, significant digits below it: `compact` rounds everything under 0.05 to
  * "0", and a tokenised stock is bought by the dollar rather than by the share.
  */
-export const amount = (value: number) => (value >= 1 ? compactFormat.format(value) : smallFormat.format(value));
+export const amount = (value: number) => {
+  if (value >= 1) return compactFormat.format(value);
+  const shown = smallFormat.format(value);
+  // 0.9999 rounds to "1": a fraction of a share reading as a whole one is the error this
+  // column exists to avoid. Only that case is cut instead; every other keeps its rounding.
+  return Number(shown) >= 1 ? smallTruncFormat.format(value) : shown;
+};
 export const price = (value: number) => `$${priceFormat.format(value)}`;
 export const clock = (ts: number) => clockFormat.format(new Date(ts * 1000));
 export const short = (hash: string) => `${hash.slice(0, 10)}…`;
