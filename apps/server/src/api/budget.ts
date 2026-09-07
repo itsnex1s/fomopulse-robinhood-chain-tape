@@ -23,24 +23,33 @@ const WARMUP_MS = ms(limits.budget.warmupSeconds);
 const MONTH_MS = 30 * 86_400_000;
 
 let rows = 0;
-let since = Date.now();
+/**
+ * When the counting started. Deliberately not `Date.now()` at import: a Worker evaluates its
+ * global scope with the clock frozen before the first I/O, so a module-level stamp is the epoch
+ * and every rate measured against it is off by the age of the world. `meterRows` sets it, and on
+ * Bun the first `spend` does.
+ */
+let since = 0;
 
 /**
  * The platform's own count of rows walked, where there is one. Handed in rather than imported:
  * the count lives in the Durable Object's storage shim, and nothing under `apps/server` may
  * reach into `apps/worker`. Whatever it read at the time is the mark everything after is
- * measured from, so an object that has been up for days does not project its whole life.
+ * measured from, and the clock starts here too: both halves of a rate have to begin together,
+ * or an object that has been up for a minute projects the rate of one that has been up forever.
  */
 let meter: (() => number) | undefined;
 let mark = 0;
 export const meterRows = (count: () => number): void => {
   meter = count;
   mark = count();
+  since = Date.now();
 };
 
 /** Rows an answer walked. Called by whatever worked it out, not guessed at from outside; only
  *  counted where the platform keeps no count of its own. */
 export const spend = (walked: number): void => {
+  if (since === 0) since = Date.now();
   rows += walked;
 };
 
@@ -74,7 +83,7 @@ export const measured = (): Record<string, { rows: number; runs: number }> => Ob
 
 /** Rows this month is on course to walk, at the rate seen so far. */
 export function projected(now = Date.now()): number {
-  const elapsed = now - since;
+  const elapsed = since === 0 ? 0 : now - since;
   if (elapsed < WARMUP_MS) return 0;
   return (walked() / elapsed) * MONTH_MS;
 }

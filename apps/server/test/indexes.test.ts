@@ -108,3 +108,15 @@ test("the quotes are ordered by a sort rather than by an index that every pass w
     .map((row) => row.name);
   expect(columns.filter((name) => !name.startsWith("sqlite_autoindex"))).toEqual([]);
 });
+
+test("the window's biggest buy is the first row of an index, not the window sorted", () => {
+  const detail = plan(
+    `SELECT f.usd, f.wallet, f.token, t.symbol, f.ts
+       FROM fills f LEFT JOIN tokens t ON t.address = f.token
+      WHERE f.ts >= ? AND f.dust = 0 AND f.side = 'buy' AND f.usd IS NOT NULL
+      ORDER BY f.usd DESC LIMIT 1`,
+    0,
+  );
+  expect(detail).toContain("fills_big_buys");
+  expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
+});

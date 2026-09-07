@@ -4,7 +4,7 @@ import { counts, getMeta, MAX_POOL_AGE, overview, positionsCount, tape } from ".
 import { discoverList } from "../discover.ts";
 import { cursor } from "../ingest/cursor.ts";
 import { latencyMs, latencySummary } from "../ingest/lag.ts";
-import { limits, ms } from "../limits.ts";
+import { type Ladder, limits, ms } from "../limits.ts";
 import { describe, log } from "../log.ts";
 import { sessionState } from "../privy.ts";
 import { bagList, leaderboardState, ranking } from "../traders.ts";
@@ -196,17 +196,28 @@ const discoverFor = memo(ttlBy(MARKED), (key) => {
  * rather than left to decide, because holding answers longer is the one lever that answers a
  * surge, and a surge lands on the cache and not in here.
  */
-const edgeTtl = (path: string, cursored: boolean): number | undefined => {
+const edgeTtl = (path: string, window: string, cursored: boolean): number | undefined => {
   // A page behind a cursor is a page of the past. It cannot change, so nothing is gained by
   // asking for it again, and it is the half of the tape a reader paging back asks for most.
   if (path === "/api/tape" && cursored) return limits.cache.cursorSeconds;
-  return limits.cache.edge[path.slice("/api/".length)];
+  const base = limits.cache.edge[path.slice("/api/".length)];
+  if (base === undefined) return undefined;
+  // The readout is the one answer whose cost is the window: it walks every fill in it, twice,
+  // and thirty days of that held for the twelve seconds an hour of it is worth would ask for a
+  // month of the tape five times a minute. So it is never held for less than the memo behind
+  // it. The rest are already priced for the widest window they serve.
+  if (path !== "/api/status" && path !== "/api/overview") return base;
+  return Math.max(base, limits.cache.counted[window as keyof Ladder] ?? 0);
 };
 
 export const api = new Hono()
   .use("/api/*", async (c, next) => {
     await next();
-    const seconds = edgeTtl(new URL(c.req.url).pathname, c.req.query("before") !== undefined);
+    const seconds = edgeTtl(
+      new URL(c.req.url).pathname,
+      c.req.query("window") ?? "24h",
+      c.req.query("before") !== undefined,
+    );
     if (seconds !== undefined) c.header("x-ttl", String(Math.round(seconds * pressure())));
   })
   .get("/api/status", (c) => c.json(status(c.req.query("window") ?? "24h")))

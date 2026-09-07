@@ -52,6 +52,13 @@ export const SCHEMA = `
    * rather than one read per token, four times a minute.
    */
   CREATE INDEX IF NOT EXISTS fills_unpriced ON fills (ts, token) WHERE priced = 'unpriced';
+  /**
+   * The window's biggest buy, which the readout carries and which the window's own aggregate
+   * cannot answer in the same pass. Ordered by size, so the answer is the first row the index
+   * offers rather than the window sorted; partial, so it holds only the buys that could ever
+   * be one — about two thirds of the tape, and one write apiece.
+   */
+  CREATE INDEX IF NOT EXISTS fills_big_buys ON fills (usd DESC) WHERE dust = 0 AND side = 'buy' AND usd IS NOT NULL;
   CREATE TABLE IF NOT EXISTS prices (
     token TEXT PRIMARY KEY, price_usd REAL NOT NULL, liquidity_usd REAL, change24 REAL,
     pair_created_at INTEGER, pair_address TEXT, updated_at INTEGER NOT NULL,
