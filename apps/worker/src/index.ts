@@ -37,32 +37,48 @@ const TTL: [prefix: string, seconds: number][] = [
  */
 const tape = (env: Env) => env.TAPE.get(env.TAPE.idFromName("tape"), { locationHint: "enam" });
 
+/** One `/api` request: from the edge cache when it can be, from the object otherwise. */
+async function answer(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  const direct = async () => {
+    const from = await tape(env).fetch(request);
+    // Copied because a subrequest's headers are immutable and the caller adds to them.
+    return new Response(from.body, from);
+  };
+  if (request.method !== "GET") return direct();
+
+  const seconds = TTL.find(([prefix]) => url.pathname.startsWith(prefix))?.[1] ?? 0;
+  if (seconds === 0) return direct();
+
+  const cache = caches.default;
+  const key = new Request(url.toString(), { method: "GET" });
+  const hit = await cache.match(key);
+  if (hit) {
+    // Says which of the two paths answered, so a deployment can be checked from outside.
+    const cached = new Response(hit.body, hit);
+    cached.headers.set("x-cache", "hit");
+    return cached;
+  }
+
+  const response = await direct();
+  response.headers.set("cache-control", `public, max-age=${seconds}, s-maxage=${seconds}`);
+  response.headers.set("x-cache", "miss");
+  ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") return tape(env).fetch(request);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-    if (request.method !== "GET") return tape(env).fetch(request);
 
-    const seconds = TTL.find(([prefix]) => url.pathname.startsWith(prefix))?.[1] ?? 0;
-    if (seconds === 0) return tape(env).fetch(request);
-
-    const cache = caches.default;
-    const key = new Request(url.toString(), { method: "GET" });
-    const hit = await cache.match(key);
-    if (hit) {
-      // Says which of the two paths answered, so a deployment can be checked from outside.
-      const cached = new Response(hit.body, hit);
-      cached.headers.set("x-cache", "hit");
-      return cached;
-    }
-
-    const answer = await tape(env).fetch(request);
-    const response = new Response(answer.body, answer);
-    response.headers.set("cache-control", `public, max-age=${seconds}, s-maxage=${seconds}`);
-    response.headers.set("x-cache", "miss");
-    ctx.waitUntil(cache.put(key, response.clone()));
+    const response = await answer(request, env, ctx, url);
+    // A crawler has to fetch these to see anything at all — the page is a tape and the
+    // tape arrives over the API — but the JSON is not a page and must never be a result
+    // of its own. robots.txt lets the two endpoints the first paint needs be read; this
+    // keeps what comes back out of the index.
+    response.headers.set("x-robots-tag", "noindex");
     return response;
   },
 

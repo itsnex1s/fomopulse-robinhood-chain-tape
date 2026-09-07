@@ -1,5 +1,11 @@
 User-agent: *
 Allow: /
+# The page is a tape, and the tape arrives over these two: a renderer that cannot fetch
+# them sees an empty table and indexes it. They answer with X-Robots-Tag: noindex, so
+# reading them is allowed and indexing what comes back is not. The rest of the API has
+# no bearing on what the page looks like and is a query space without an end.
+Allow: /api/status
+Allow: /api/tape
 Disallow: /api/
 
 Sitemap: https://fomopulse.app/sitemap.xml

@@ -11,7 +11,10 @@
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
+    // The app has one page and no routes of its own, so anything else is a miss and has to
+    // say so: a shell served with a 200 is a soft 404, which is a crawler's word for a page
+    // that lied about existing.
+    "not_found_handling": "404-page",
     "run_worker_first": ["/api/*", "/ws"]
   },
 
