@@ -202,9 +202,11 @@ exports. A module with no exports listed is an entry point that runs on import.
                         every read. Written from the fills: per wallet when a fill lands, per
                         token when a pardon or a price reaches all of it, in full after a prune
                         or a replay. Read this before touching a bag.
-    27 prices.ts        savePrice loadPrices tokensToPrice unpricedFills setEstimate dropThinPrices
-                        StoredQuote
+    27 prices.ts        savePrice loadPrices tokensToPrice unpricedByToken setEstimate
+                        dropThinPrices StoredQuote
                         Feed quotes per token, and the repricing of fills that arrived unpriced.
+                        Which tokens to quote is read off the quotes themselves; which fills are
+                        owed one, off the window at once. Neither walks the tape.
     28 traders.ts       saveTraders allTraders TraderRow IncomingTrader
                         fomo trader cards: identity only, no figures.
     29 bags.ts          tapeBags tapeHolders tapeTokens unnamedBags recordBagHistory RESIDUE
@@ -215,6 +217,8 @@ exports. A module with no exports listed is an entry point that runs on import.
                         DiscoverRow Buyer
                         Young pools with what this tape saw happen in them, and who bought a
                         whole page of them. The cuts that decide what is a discovery live here.
+                        The pools are the small side of every join and the query says so:
+                        MATERIALIZED and CROSS JOIN, or the planner walks the fills instead.
     30 stats.ts         allStats saveStats statsVersion fillsAfter lastPriceOf STAT_WINDOWS
                         StatRow StatFill StatWindow
                         The books table: paged fill reads for the walk, and the version a reader
@@ -243,12 +247,14 @@ exports. A module with no exports listed is an entry point that runs on import.
                         run_worker_first, which a test holds it to.
     37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
-    37b budget.ts       spend walked meterRows projected pressure stretch budget BUDGET
-                        MAX_STRETCH resetBudget
+    37b budget.ts       spend walked meterRows measure measured projected pressure stretch
+                        budget BUDGET MAX_STRETCH resetBudget
                         What the month is on course to walk — the storage's own count of rows
                         where the platform keeps one, the answers' own word for it where it does
                         not — and how much longer to hold them for it. The stretch reaches the
-                        edge cache through the `x-ttl` header routes.ts sets.
+                        edge cache through the `x-ttl` header routes.ts sets. `measure` names a
+                        piece of work and keeps what it walked, which is how the cost of a page
+                        or a job is known rather than argued about.
     38 routes.ts        api COUNTED MARKED ttlBy
                         The Hono app: the eight GET routes, the in-process memo in front of them,
                         and the `x-ttl` every answer carries for the edge. All the lifetimes come
@@ -268,7 +274,9 @@ exports. A module with no exports listed is an entry point that runs on import.
                         answer is filed under, and whether this address has had its minute of it.
     42 tape.ts          Tape
                         The Durable Object: the alarm pulse, the pass budget, the deduplication slot,
-                        the beat that /api/alive reports, and the hibernating reader sockets.
+                        the beat that /api/alive reports, and the hibernating reader sockets. The
+                        beat carries what every route and every step of the pass walked, so the
+                        half of the bill that is rows read is readable off the object itself.
     43 app.ts           boot follow resume sweep prices quotes traders repair carry prune session
                         wallet_count
                         The ingestion glue for the object, and the re-export of the Hono app.
