@@ -8,12 +8,20 @@ import { expect, test } from "bun:test";
 import "./support/memory.ts";
 import { db } from "../src/db.ts";
 
-const plan = (sql: string, ...bindings: (string | number)[]): string =>
-  db
-    .query<{ detail: string }, (string | number)[]>(`EXPLAIN QUERY PLAN ${sql}`)
-    .all(...bindings)
-    .map((row) => row.detail)
-    .join(" | ");
+// Prepared rather than queried, and let go of by hand: `query` keeps its statement in the
+// database's cache, and a cached plan over a write is a statement bun still counts as running
+// when the next test's transaction tries to commit.
+const plan = (sql: string, ...bindings: (string | number)[]): string => {
+  const statement = db.prepare<{ detail: string }, (string | number)[]>(`EXPLAIN QUERY PLAN ${sql}`);
+  try {
+    return statement
+      .all(...bindings)
+      .map((row) => row.detail)
+      .join(" | ");
+  } finally {
+    statement.finalize();
+  }
+};
 
 test("the dust pardon reads the dusty rows of a token, not every row of it", () => {
   const detail = plan(
