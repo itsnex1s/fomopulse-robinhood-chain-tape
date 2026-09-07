@@ -9,7 +9,7 @@ import { cursor } from "../../server/src/ingest/cursor.ts";
 import { repairFills } from "../../server/src/ingest/rebuild.ts";
 import { onLogs } from "../../server/src/ingest/receipt.ts";
 import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
-import { catchUp, head, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
+import { catchUp, head, mend, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
 import { SWEEP_BLOCKS, sweeper, unaccounted } from "../../server/src/ingest/sweep.ts";
 import { log } from "../../server/src/log.ts";
 import { refreshPrices } from "../../server/src/prices/feed.ts";
@@ -165,6 +165,9 @@ export async function sweep(): Promise<number> {
     }),
   );
   recent.done(to);
+  // Blocks a receipt read gave up on, tried again now that the endpoint has had a minute.
+  const mended = await at("scan", mend(emit));
+  if (mended > 0) log.info(`read ${mended} blocks that were owed one`);
   if (past > 0) {
     log.warn(`the sweep found ${past} fills past everything the socket delivered; resubscribing`);
     // The old socket is not coming back on its own — it never reported down — so it is closed

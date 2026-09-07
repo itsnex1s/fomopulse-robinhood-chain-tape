@@ -28,3 +28,21 @@ test("the cursor is monotonic", () => {
   expect(cursor.last).toBe(110);
   expect(cursor.highest).toBe(110);
 });
+
+test("a transaction given up on stops holding the cursor, and its block is owed a read", () => {
+  cursor.begin("0xc", 120);
+  cursor.seen(125);
+  expect(cursor.last).toBe(119); // 0xc at 120 is still being read
+
+  cursor.abandon("0xc");
+  // The block is written down instead of pinning the cursor for the rest of the run.
+  expect(cursor.owed).toEqual([120]);
+  expect(cursor.last).toBe(125);
+  expect(cursor.pending).toBe(0);
+  // and it outlives the process, so a restart still knows the block is unread
+  expect(JSON.parse(getMeta("gaps") ?? "[]")).toEqual([120]);
+
+  cursor.mend(120);
+  expect(cursor.owed).toEqual([]);
+  expect(JSON.parse(getMeta("gaps") ?? "[]")).toEqual([]);
+});

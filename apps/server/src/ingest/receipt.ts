@@ -107,8 +107,10 @@ async function withRetries(tx: Hex, block: bigint, emit: (fills: StoredFill[]) =
       return fills;
     } catch (error) {
       if (attempt >= ATTEMPTS) {
-        // Left in flight on purpose: the cursor stays below this block and the next start rescans it.
-        log.error(`giving up on ${tx} after ${attempt} attempts; its block will be rescanned on restart`, error);
+        // Written down rather than left in flight: the cursor may go on, and the sweep comes
+        // back to the block a few at a time until it reads. See ingest/cursor.ts.
+        cursor.abandon(tx);
+        log.error(`giving up on ${tx} after ${attempt} attempts; its block is owed a re-read`, error);
         return [];
       }
       await sleep(RETRY_MS * attempt);

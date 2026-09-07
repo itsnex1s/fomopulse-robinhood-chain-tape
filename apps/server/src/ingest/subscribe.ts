@@ -145,6 +145,30 @@ export async function catchUp(from: bigint, to: bigint, emit: (fills: StoredFill
   return fresh;
 }
 
+/**
+ * Blocks a transaction was given up on, read again one at a time. A few per sweep: the
+ * endpoint that could not serve the receipt a minute ago is usually fine now, and a block
+ * that reads clean stops being owed. One that still refuses stays on the list, so the
+ * resume cursor keeps naming a block everything below which really is stored.
+ */
+export async function mend(emit: (fills: StoredFill[]) => void, limit = 5): Promise<number> {
+  let mended = 0;
+  for (const block of cursor.owed.slice(0, limit)) {
+    const at = BigInt(block);
+    // Taken off the list before the read rather than after it: a transaction that gives up
+    // again puts its own block straight back, and there is no success flag to misread.
+    cursor.mend(block);
+    try {
+      await catchUp(at, at, emit);
+    } catch (error) {
+      cursor.owe(block);
+      throw error;
+    }
+    if (!cursor.owed.includes(block)) mended++;
+  }
+  return mended;
+}
+
 interface Notification {
   jsonrpc: "2.0";
   id?: number;

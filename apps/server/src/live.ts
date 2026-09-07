@@ -1,7 +1,7 @@
 import { cursor } from "./ingest/cursor.ts";
 import { onLogs } from "./ingest/receipt.ts";
 import type { StoredFill } from "./ingest/reconstruct.ts";
-import { catchUp, head, watch } from "./ingest/subscribe.ts";
+import { catchUp, head, mend, watch } from "./ingest/subscribe.ts";
 import { sweeper, unaccounted } from "./ingest/sweep.ts";
 import { log } from "./log.ts";
 import { sleep } from "./sleep.ts";
@@ -111,6 +111,9 @@ export function follow(wsUrl: string, emit: Emit): void {
       });
       recent.done(to);
       if (fresh > 0) log.warn(`the sweep found ${fresh} fills the socket did not deliver`);
+      // Blocks a receipt read gave up on, tried again now that the endpoint has had a minute.
+      const mended = await mend(emit);
+      if (mended > 0) log.info(`read ${mended} blocks that were owed one`);
       if (past > 0) {
         log.warn(`${past} of them are past everything the socket ever delivered; resubscribing`);
         stop();
