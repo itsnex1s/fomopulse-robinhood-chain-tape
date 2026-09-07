@@ -50,9 +50,15 @@ export const bagUrl = (bag: { network: number; token: string; pair_address?: str
 export const fomoTokenUrl = (bag: { network: number; token: string }) =>
   FOMO_SLUGS[bag.network] ? `${FOMO}/tokens/${FOMO_SLUGS[bag.network]}/${bag.token}` : undefined;
 
-export const txUrl = (explorer: string, tx: string) => `${explorer}/tx/${tx}`;
-export const tokenExplorerUrl = (explorer: string, token: string) => `${explorer}/token/${token}`;
-export const blockUrl = (explorer: string, block: number) => `${explorer}/block/${block}`;
+/**
+ * The explorer's address comes from /api/status, so for the first moment of a page there is
+ * none. Empty, these built `/tx/0x…`, a path on this origin: the tape rendered before the
+ * status query resolved and its links pointed the reader back at the app itself.
+ */
+export const txUrl = (explorer: string, tx: string) => (explorer ? `${explorer}/tx/${tx}` : undefined);
+export const tokenExplorerUrl = (explorer: string, token: string) =>
+  explorer ? `${explorer}/token/${token}` : undefined;
+export const blockUrl = (explorer: string, block: number) => (explorer ? `${explorer}/block/${block}` : undefined);
 export const tokenUrl = (slug: string, token: string) => `https://dexscreener.com/${slug}/${token}`;
 export const traderUrl = (fill: { handle: string; profile_url?: string | null }) =>
   fill.profile_url ?? `${FOMO}/profile/${fill.handle}`;
