@@ -3,14 +3,17 @@
  *  so a rebuild replays every fill without touching the chain again. */
 export const SCHEMA = `
   /** One row per transaction; ts is the block timestamp, NULL until it is known. */
-  CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY, tx BLOB NOT NULL UNIQUE, block INTEGER NOT NULL, ts INTEGER);
+  /**
+   * What the chain said, and the evidence a rules change is replayed from. The transfers live
+   * in one packed value rather than a row apiece: they are only ever read whole and by
+   * receipt, and a row apiece was fourteen writes a fill for a table nothing queries.
+   * See db/logs.ts for the layout.
+   */
+  CREATE TABLE IF NOT EXISTS receipts (
+    id INTEGER PRIMARY KEY, tx BLOB NOT NULL UNIQUE, block INTEGER NOT NULL, ts INTEGER,
+    logs BLOB NOT NULL DEFAULT x''
+  );
   CREATE INDEX IF NOT EXISTS receipts_block ON receipts (block);
-  /** The ERC-20 transfers of a receipt: 20-byte addresses, the amount as a big-endian integer. */
-  CREATE TABLE IF NOT EXISTS transfers (
-    receipt_id INTEGER NOT NULL, log_index INTEGER NOT NULL,
-    token BLOB NOT NULL, sender BLOB NOT NULL, recipient BLOB NOT NULL, value BLOB NOT NULL,
-    PRIMARY KEY (receipt_id, log_index)
-  ) WITHOUT ROWID;
   CREATE TABLE IF NOT EXISTS tokens (address TEXT PRIMARY KEY, decimals INTEGER NOT NULL, symbol TEXT, name TEXT);
   CREATE TABLE IF NOT EXISTS addresses (address TEXT PRIMARY KEY, kind TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS fills (

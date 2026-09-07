@@ -1,6 +1,8 @@
 /** Retention: what the tape keeps, and what it lets go of once nothing reads it. */
 import { expect, test } from "bun:test";
 import "./support/memory.ts";
+import type { Hex } from "viem";
+import { packTransfers } from "../src/db/logs.ts";
 import { db, FILL_DAYS, prune, RECEIPT_DAYS } from "../src/db.ts";
 import { fill, insertFills, now, wallets } from "./support/api.ts";
 
@@ -23,16 +25,22 @@ test("fills past their horizon go, and everything younger stays", () => {
 });
 
 test("a receipt past its horizon takes its transfers, and one with no timestamp is left alone", () => {
-  const receipt = db.query<unknown, [Uint8Array, number, number | null]>(
-    "INSERT INTO receipts (tx, block, ts) VALUES (?, ?, ?)",
+  const receipt = db.query<unknown, [Uint8Array, number, number | null, Uint8Array]>(
+    "INSERT INTO receipts (tx, block, ts, logs) VALUES (?, ?, ?, ?)",
   );
-  receipt.run(new Uint8Array([0xaa, 0x01]), 1, now - (RECEIPT_DAYS + 1) * DAY);
-  receipt.run(new Uint8Array([0xaa, 0x02]), 2, now);
-  receipt.run(new Uint8Array([0xaa, 0x03]), 3, null);
-  const id = db.query<{ id: number }, []>("SELECT id FROM receipts WHERE block = 1").get()!.id;
-  db.query<unknown, [number, number, string, string, string, string]>(
-    "INSERT INTO transfers (receipt_id, log_index, token, sender, recipient, value) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, 0, "0x9", "0x1", "0x2", "1");
+  // The transfers are a column on the receipt, so there is nothing left behind to orphan.
+  const logs = packTransfers([
+    {
+      logIndex: 0,
+      token: "0x9".padEnd(42, "0") as Hex,
+      from: "0x1".padEnd(42, "0") as Hex,
+      to: "0x2".padEnd(42, "0") as Hex,
+      value: 1n,
+    },
+  ]);
+  receipt.run(new Uint8Array([0xaa, 0x01]), 1, now - (RECEIPT_DAYS + 1) * DAY, logs);
+  receipt.run(new Uint8Array([0xaa, 0x02]), 2, now, logs);
+  receipt.run(new Uint8Array([0xaa, 0x03]), 3, null, logs);
 
   prune(now);
 
@@ -42,7 +50,4 @@ test("a receipt past its horizon takes its transfers, and one with no timestamp 
     .map((r) => r.block);
   // The dated old one is gone; the recent one and the undated one — not old, unknown — stay.
   expect(blocks).toEqual([2, 3]);
-  expect(db.query<{ n: number }, [number]>("SELECT COUNT(*) AS n FROM transfers WHERE receipt_id = ?").get(id)!.n).toBe(
-    0,
-  );
 });

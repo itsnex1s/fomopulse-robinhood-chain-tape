@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { env } from "../config.ts";
+import { carryTransfersOntoReceipts } from "./logs.ts";
 import { SCHEMA } from "./schema.ts";
 
 /** The one connection every module prepares its statements on; the schema is applied on open. */
@@ -18,3 +19,12 @@ try {
 } catch {
   // already there, which is the ordinary case
 }
+/** The receipts of a database that predates the packed transfers have no column to put them in;
+ *  CREATE TABLE IF NOT EXISTS leaves an existing table exactly as it found it. */
+try {
+  db.exec("ALTER TABLE receipts ADD COLUMN logs BLOB NOT NULL DEFAULT x''");
+} catch {
+  // already there, which is the ordinary case
+}
+
+carryTransfersOntoReceipts(db);
