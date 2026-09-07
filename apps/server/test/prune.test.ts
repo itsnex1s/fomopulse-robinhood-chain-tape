@@ -2,11 +2,22 @@
 import { expect, test } from "bun:test";
 import "./support/memory.ts";
 import type { Hex } from "viem";
+import { QUOTE_TOKENS } from "../src/config.ts";
 import { packTransfers } from "../src/db/logs.ts";
-import { db, FILL_DAYS, prune, RECEIPT_DAYS } from "../src/db.ts";
+import { db, FILL_DAYS, prune, RECEIPT_DAYS, savePrice } from "../src/db.ts";
 import { fill, insertFills, now, wallets } from "./support/api.ts";
 
 const DAY = 86_400;
+
+/** The parts of a feed card that `savePrice` insists on. */
+const quote = (price: number) => ({
+  price,
+  liquidity: 1_000_000,
+  change24: null,
+  pairCreatedAt: null,
+  pair: null,
+  marketCap: null,
+});
 
 test("fills past their horizon go, and everything younger stays", () => {
   const trader = wallets[4]!;
@@ -50,4 +61,27 @@ test("a receipt past its horizon takes its transfers, and one with no timestamp 
     .map((r) => r.block);
   // The dated old one is gone; the recent one and the undated one — not old, unknown — stay.
   expect(blocks).toEqual([2, 3]);
+});
+
+test("a quote outlives the fill that wanted it only until the next pass", () => {
+  const orphan: Hex = `0x${"d4".repeat(20)}`;
+  const kept: Hex = `0x${"d5".repeat(20)}`;
+  savePrice(orphan, quote(1), now);
+  savePrice(kept, quote(1), now);
+  insertFills([fill({ tx: `0x${"d6".repeat(32)}`, wallet: `0x${"d7".repeat(20)}`, token: kept })]);
+  prune(now);
+  const left = db
+    .query<{ token: string }, []>("SELECT token FROM prices")
+    .all()
+    .map((r) => r.token);
+  expect(left).toContain(kept);
+  expect(left).not.toContain(orphan);
+  // The quote tokens have no fills of their own and are what a cash leg is priced from.
+  for (const token of QUOTE_TOKENS.keys()) savePrice(token, quote(1), now);
+  prune(now);
+  const after = db
+    .query<{ token: string }, []>("SELECT token FROM prices")
+    .all()
+    .map((r) => r.token);
+  for (const token of QUOTE_TOKENS.keys()) expect(after).toContain(token);
 });

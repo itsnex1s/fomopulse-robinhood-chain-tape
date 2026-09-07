@@ -209,8 +209,11 @@ export const books = (): Promise<void> => {
 /** Drops what is past its horizon; see db/prune.ts for how long each row is kept. */
 export function prune(): Promise<void> {
   const gone = pruneStorage(Math.floor(Date.now() / 1000));
-  if (gone.fills > 0 || gone.receipts > 0)
-    log.info(`pruned ${gone.receipts} receipts and ${gone.fills} fills past their horizon`);
+  if (gone.fills > 0 || gone.receipts > 0 || gone.quotes > 0)
+    log.info(
+      `pruned ${gone.receipts} receipts and ${gone.fills} fills past their horizon, ` +
+        `and ${gone.quotes} quotes with no fill left to keep them`,
+    );
   return Promise.resolve();
 }
 export const quotes = quoteBags;
