@@ -21,7 +21,7 @@ export interface Wallet {
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /** A config mistake should stop the process on the first line, not surface as an empty tape an hour later. */
-function invalid(message: string): never {
+export function invalid(message: string): never {
   throw new Error(`config: ${message}`);
 }
 
