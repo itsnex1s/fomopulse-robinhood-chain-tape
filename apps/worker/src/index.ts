@@ -4,6 +4,7 @@
  * thousand polling readers down to one request per colo per cache window.
  */
 import { limits } from "../../server/src/limits.ts";
+import { canonical } from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -11,7 +12,8 @@ export { Tape } from "./tape.ts";
 /**
  * How long an answer may be reused at the edge, in seconds, from config/limits.json. Set just
  * under the interval the client polls at, so the object is asked once per colo per window
- * however many readers there are.
+ * however many readers there are. The object may ask for longer in the answer's own `x-ttl`,
+ * which is how a month spending past its budget reaches this cache: see api/budget.ts.
  */
 const TTL: [prefix: string, seconds: number][] = Object.entries(limits.cache.edge).map(([name, seconds]) => [
   `/api/${name}`,
@@ -26,18 +28,19 @@ const tape = (env: Env) => env.TAPE.get(env.TAPE.idFromName("tape"), { locationH
 
 /** One `/api` request: from the edge cache when it can be, from the object otherwise. */
 async function answer(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  const asked = canonical(url);
   const direct = async () => {
-    const from = await tape(env).fetch(request);
+    const from = await tape(env).fetch(new Request(asked.toString(), request));
     // Copied because a subrequest's headers are immutable and the caller adds to them.
     return new Response(from.body, from);
   };
   if (request.method !== "GET") return direct();
 
-  const seconds = TTL.find(([prefix]) => url.pathname.startsWith(prefix))?.[1] ?? 0;
-  if (seconds === 0) return direct();
+  const configured = TTL.find(([prefix]) => url.pathname.startsWith(prefix))?.[1] ?? 0;
+  if (configured === 0) return direct();
 
   const cache = caches.default;
-  const key = new Request(url.toString(), { method: "GET" });
+  const key = new Request(asked.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) {
     const cached = new Response(hit.body, hit);
@@ -46,6 +49,10 @@ async function answer(request: Request, env: Env, ctx: ExecutionContext, url: UR
   }
 
   const response = await direct();
+  // What the object asked for, which already carries whatever the month is spending; the
+  // configured lifetime is the floor under it and the answer when it says nothing.
+  const asks = Number(response.headers.get("x-ttl"));
+  const seconds = Number.isFinite(asks) && asks > configured ? Math.round(asks) : configured;
   response.headers.set("cache-control", `public, max-age=${seconds}, s-maxage=${seconds}`);
   response.headers.set("x-cache", "miss");
   ctx.waitUntil(cache.put(key, response.clone()));

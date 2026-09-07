@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Database, use } from "../../worker/src/sqlite.ts";
+import { Database, rowsRead, use } from "../../worker/src/sqlite.ts";
 
 /** Storage that records what it was asked, standing in for the object's SQLite. */
 function fakeStorage() {
@@ -10,7 +10,7 @@ function fakeStorage() {
       databaseSize: 0,
       exec(query: string, ...bindings: unknown[]) {
         calls.push({ query, bindings });
-        return { toArray: () => [], rowsWritten: 1 };
+        return { toArray: () => [], rowsRead: 2, rowsWritten: 1 };
       },
     },
     transactionSync: <T>(closure: () => T) => closure(),
@@ -48,4 +48,15 @@ test("the schema is split into statements and its pragmas dropped", () => {
   new Database().exec("PRAGMA journal_mode = WAL;\n/* the fills */\nCREATE TABLE a (b TEXT);\n");
 
   expect(storage.calls.map((call) => call.query.trim())).toEqual(["CREATE TABLE a (b TEXT)"]);
+});
+
+test("what every cursor walked is added up, so the budget reads the bill and not a guess", () => {
+  const storage = fakeStorage();
+  use(storage);
+  const database = new Database();
+  const before = rowsRead();
+  database.query("SELECT 1").all();
+  database.query("DELETE FROM fills WHERE ts < ?").run(0);
+  // Two rows a cursor, as this storage reports it, whether the query read or wrote.
+  expect(rowsRead() - before).toBe(4);
 });

@@ -5,7 +5,9 @@
  * reader's page slower than it looks.
  */
 import { expect, test } from "bun:test";
+import { resetBudget, spend } from "../src/api/budget.ts";
 import { COUNTED, MARKED, ttlBy } from "../src/api/routes.ts";
+import { limits } from "../src/limits.ts";
 import { api, fill, insertFills, now, wallets } from "./support/api.ts";
 
 /** What the client itself asks for, from App.tsx, Bags.tsx and Traders.tsx. */
@@ -74,4 +76,26 @@ test("a window is asked again once its own lifetime is up, and not before", asyn
   await at(600_000, async () => {
     expect(await fillsIn("all")).toBeGreaterThan(ever);
   });
+});
+
+test("every cached route tells the edge how long to hold it, and a cursor page for far longer", async () => {
+  resetBudget();
+  const ttlOf = async (path: string) => Number((await api.request(path)).headers.get("x-ttl"));
+  for (const [name, seconds] of Object.entries(limits.cache.edge))
+    if (name !== "limits") expect(await ttlOf(`/api/${name}`)).toBe(seconds);
+  // A page of the past cannot change, and it is the half a reader paging back asks for most.
+  expect(await ttlOf("/api/tape?before=1&beforeId=1")).toBe(limits.cache.cursorSeconds);
+  expect(await ttlOf("/api/tape?before=1&beforeId=1")).toBeGreaterThan(limits.cache.edge.tape!);
+});
+
+test("a month heading past its budget holds the edge's answers longer too", async () => {
+  resetBudget(Date.now() - 10 * 60_000);
+  const plain = Number((await api.request("/api/status")).headers.get("x-ttl"));
+  expect(plain).toBe(limits.cache.edge.status!);
+  // Ten minutes at a rate that comes to four budgets over a month.
+  spend(4 * limits.budget.rowsPerMonth * ((10 * 60_000) / (30 * 86_400_000)));
+  const held = Number((await api.request("/api/status")).headers.get("x-ttl"));
+  expect(held).toBeGreaterThan(plain * 3);
+  expect(held).toBeLessThanOrEqual(plain * limits.budget.maxHold);
+  resetBudget();
 });

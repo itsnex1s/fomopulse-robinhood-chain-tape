@@ -8,6 +8,7 @@ type Value = ArrayBuffer | string | number | null;
 
 interface Cursor<T> {
   toArray(): T[];
+  rowsRead: number;
   rowsWritten: number;
 }
 
@@ -29,6 +30,20 @@ export const use = (value: Storage): void => {
 };
 
 export const bytesUsed = (): number => storage?.sql.databaseSize ?? 0;
+
+/**
+ * Rows this isolate has walked, as the storage itself counts them — the number the bill is
+ * made of, and the one thing nothing inside SQLite reports. Every cursor carries its own count
+ * once it has been walked, so they are added up here rather than estimated by the callers.
+ */
+let read = 0;
+export const rowsRead = (): number => read;
+
+/** A cursor's counts, taken after it has been walked; before that they are zero. */
+const counted = <T>(cursor: Cursor<T>): Cursor<T> => {
+  read += cursor.rowsRead;
+  return cursor;
+};
 
 const bound = (): Storage => {
   if (!storage) throw new Error("no durable object storage is bound; call use(ctx.storage) first");
@@ -75,10 +90,10 @@ class Statement<T, P extends unknown[]> {
   }
 
   all(...parameters: P): T[] {
-    return bound()
-      .sql.exec(this.text, ...this.bindings(parameters))
-      .toArray()
-      .map((row) => fromRow<T>(row));
+    const cursor = bound().sql.exec<Record<string, Value>>(this.text, ...this.bindings(parameters));
+    const rows = cursor.toArray();
+    counted(cursor);
+    return rows.map((row) => fromRow<T>(row));
   }
 
   get(...parameters: P): T | null {
@@ -89,7 +104,7 @@ class Statement<T, P extends unknown[]> {
     const cursor = bound().sql.exec(this.text, ...this.bindings(parameters));
     // The cursor counts rows only once it has been walked, and a write returns none.
     cursor.toArray();
-    return { changes: cursor.rowsWritten };
+    return { changes: counted(cursor).rowsWritten };
   }
 }
 
@@ -106,7 +121,12 @@ export class Database {
       .split(";")
       .map((part) => part.trim())
       .filter((part) => part.length > 0 && !/^pragma\b/i.test(part));
-    for (const statement of statements) bound().sql.exec(statement);
+    for (const statement of statements) {
+      const cursor = bound().sql.exec(statement);
+      // Counted only after it has been walked; a cursor nobody read reports nothing.
+      cursor.toArray();
+      counted(cursor);
+    }
   }
 
   query<T = unknown, P extends unknown[] = unknown[]>(sql: string): Statement<T, P> {

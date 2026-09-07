@@ -190,7 +190,25 @@ const discoverFor = memo(ttlBy(MARKED), (key) => {
   return discoverList(Math.max(since(window ?? "24h"), Math.floor(Date.now() / 1000) - MAX_POOL_AGE), limit);
 });
 
+/**
+ * How long the edge in front of this may reuse an answer: the route's own lifetime from
+ * config/limits.json, stretched by whatever the month is on course to spend. The cache is told
+ * rather than left to decide, because holding answers longer is the one lever that answers a
+ * surge, and a surge lands on the cache and not in here.
+ */
+const edgeTtl = (path: string, cursored: boolean): number | undefined => {
+  // A page behind a cursor is a page of the past. It cannot change, so nothing is gained by
+  // asking for it again, and it is the half of the tape a reader paging back asks for most.
+  if (path === "/api/tape" && cursored) return limits.cache.cursorSeconds;
+  return limits.cache.edge[path.slice("/api/".length)];
+};
+
 export const api = new Hono()
+  .use("/api/*", async (c, next) => {
+    await next();
+    const seconds = edgeTtl(new URL(c.req.url).pathname, c.req.query("before") !== undefined);
+    if (seconds !== undefined) c.header("x-ttl", String(Math.round(seconds * pressure())));
+  })
   .get("/api/status", (c) => c.json(status(c.req.query("window") ?? "24h")))
   // The pulse. On Cloudflare the object answers this itself, with the alarm's beat as well;
   // here the process is the pulse, so it is the fomo session and how long it has been up.

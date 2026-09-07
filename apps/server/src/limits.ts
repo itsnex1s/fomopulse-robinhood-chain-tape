@@ -44,7 +44,16 @@ export interface Limits {
   /** How much of the one-off transfer carry a boot and a pass may each do; see db/logs.ts. */
   migrate: { bootRows: number; passRows: number };
   feed: { batch: number; minLiquidityUsd: number; estimateMaxAgeSeconds: number; supplyMaxAgeSeconds: number };
-  cache: { counted: Ladder; marked: Ladder; totalsSeconds: number; edge: Record<string, number> };
+  cache: {
+    counted: Ladder;
+    marked: Ladder;
+    totalsSeconds: number;
+    edge: Record<string, number>;
+    /** How long a page taken behind a cursor is held: it is a page of the past and cannot change. */
+    cursorSeconds: number;
+    /** The row counts an answer may be asked for, ascending; anything else is rounded up. */
+    limitSteps: number[];
+  };
   budget: { rowsPerMonth: number; maxHold: number; warmupSeconds: number };
 }
 
@@ -61,7 +70,9 @@ const positive = (where: string, values: Record<string, unknown>): void => {
   }
 };
 
-const WINDOWS: Window[] = ["1h", "24h", "7d", "30d", "all"];
+/** Every window the API serves, widest last. Exported because the edge canonicalises a query
+ *  against it before the cache is keyed on one. */
+export const WINDOWS: Window[] = ["1h", "24h", "7d", "30d", "all"];
 
 /** A ladder has every window the API serves, and never holds a wider one for less time than
  *  the window inside it — the wider window is the claim that less has to change. */
@@ -88,6 +99,13 @@ export function validateLimits(given: typeof limitsJson): Limits {
   positive("feed", given.feed);
   positive("budget", given.budget);
   positive("cache.edge", given.cache.edge);
+  const steps = given.cache.limitSteps;
+  if (steps.length === 0) invalid("cache.limitSteps is empty, so no answer could be asked for at all");
+  steps.forEach((step, i) => {
+    if (!Number.isInteger(step) || step <= 0) invalid(`cache.limitSteps[${i}] is ${step}, which is not a row count`);
+    if (i > 0 && step <= steps[i - 1]!) invalid(`cache.limitSteps[${i}] is ${step}, not past the step before it`);
+  });
+  if (given.cache.cursorSeconds <= 0) invalid("cache.cursorSeconds is not a positive number of seconds");
   if (given.pace.booksMaxSeconds < given.pace.booksMinSeconds)
     invalid("pace.booksMaxSeconds is below pace.booksMinSeconds");
   if (given.pace.passBudgetSeconds >= given.pace.passSeconds)
@@ -107,6 +125,8 @@ export function validateLimits(given: typeof limitsJson): Limits {
       marked: ladder("cache.marked", given.cache.marked),
       totalsSeconds: given.cache.totalsSeconds,
       edge: given.cache.edge,
+      cursorSeconds: given.cache.cursorSeconds,
+      limitSteps: steps,
     },
     budget: given.budget,
   };

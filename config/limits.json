@@ -49,7 +49,11 @@
     "counted": { "1h": 5, "24h": 15, "7d": 60, "30d": 120, "all": 300 },
     "marked": { "1h": 5, "24h": 15, "7d": 30, "30d": 60, "all": 60 },
     "totalsSeconds": 30,
-    "edge": { "tape": 1, "status": 12, "overview": 12, "traders": 90, "bags": 90, "discover": 90, "limits": 300 }
+    "edge": { "tape": 5, "status": 12, "overview": 12, "traders": 90, "bags": 90, "discover": 90, "limits": 300 },
+    "$cursorComment": "A page of the tape taken behind a cursor is a page of the past: it cannot change, so it is held for as long as the reader is plausibly still paging through it. Only the first page has to be fresh, and the socket keeps that one fresher than any cache window.",
+    "cursorSeconds": 300,
+    "$stepsComment": "The row counts an answer may be asked for. A limit is rounded up to the next of these before anything is read, so the edge cache cannot be walked past one row at a time: the key space is these few answers rather than every number a query string can hold. Every count the app itself asks for is on the list.",
+    "limitSteps": [50, 100, 200, 300, 400, 1000]
   },
 
   "budget": {

@@ -1,10 +1,11 @@
 /**
  * What the month is on course to spend, and what to do about it.
  *
- * The plan includes twenty-five billion rows read a month. Nothing meters that from inside
- * the object — SQLite counts what it writes and not what it walks — so each expensive answer
- * says what it walked as it is worked out, and the total is projected forward over the month
- * from however long the object has been counting.
+ * The plan includes twenty-five billion rows read a month. Where the platform counts what a
+ * query walks, that count is the one used, jobs and ingestion included — it is what the bill
+ * is made of. Where it does not, each expensive answer says what it walked as it is worked
+ * out, which is the API path and nothing behind it. Either way the total is projected forward
+ * over the month from however long the object has been counting.
  *
  * Past the budget the answers are held for longer, in proportion, which is the only lever
  * that touches the half of the bill traffic decides: a hundred tabs asking for the same
@@ -24,16 +25,33 @@ const MONTH_MS = 30 * 86_400_000;
 let rows = 0;
 let since = Date.now();
 
-/** Rows an answer walked. Called by whatever worked it out, not guessed at from outside. */
+/**
+ * The platform's own count of rows walked, where there is one. Handed in rather than imported:
+ * the count lives in the Durable Object's storage shim, and nothing under `apps/server` may
+ * reach into `apps/worker`. Whatever it read at the time is the mark everything after is
+ * measured from, so an object that has been up for days does not project its whole life.
+ */
+let meter: (() => number) | undefined;
+let mark = 0;
+export const meterRows = (count: () => number): void => {
+  meter = count;
+  mark = count();
+};
+
+/** Rows an answer walked. Called by whatever worked it out, not guessed at from outside; only
+ *  counted where the platform keeps no count of its own. */
 export const spend = (walked: number): void => {
   rows += walked;
 };
+
+/** Rows walked since the counting began, the platform's number where there is one. */
+export const walked = (): number => (meter ? meter() - mark : rows);
 
 /** Rows this month is on course to walk, at the rate seen so far. */
 export function projected(now = Date.now()): number {
   const elapsed = now - since;
   if (elapsed < WARMUP_MS) return 0;
-  return (rows / elapsed) * MONTH_MS;
+  return (walked() / elapsed) * MONTH_MS;
 }
 
 /**
@@ -48,7 +66,7 @@ export const pressure = (now = Date.now()): number => stretch(projected(now) / B
  *  than on the bill. */
 export const budget = (now = Date.now()) => ({
   /** Rows read since the object started counting. */
-  rows_walked: rows,
+  rows_walked: walked(),
   /** And what that rate comes to over a month, against the plan's allowance. */
   rows_projected: Math.round(projected(now)),
   budget: BUDGET,
@@ -59,5 +77,7 @@ export const budget = (now = Date.now()) => ({
 /** Testing only: the counter is process-wide and every test file shares one. */
 export const resetBudget = (at = Date.now()): void => {
   rows = 0;
+  meter = undefined;
+  mark = 0;
   since = at;
 };

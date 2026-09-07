@@ -2,6 +2,8 @@
  * Everything the tape does, on the object's own storage. Imported only after the object
  * has bound that storage, so the database this pulls in opens where the object lives.
  */
+
+import { meterRows } from "../../server/src/api/budget.ts";
 import { toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
@@ -19,6 +21,7 @@ import { sessionState } from "../../server/src/privy.ts";
 import { maintain, quoteBags, traderInterval } from "../../server/src/traders.ts";
 import type { Secrets } from "./env.ts";
 import { upgrade } from "./socket.ts";
+import { rowsRead } from "./sqlite.ts";
 
 export { api } from "../../server/src/api/routes.ts";
 
@@ -62,6 +65,8 @@ const emit = (fills: StoredFill[]): void => push(fills.map((f) => f.tx));
 /** Settings first: the modules above were imported with none, and hold live bindings. */
 export function boot(secrets: Secrets, send: Publish): void {
   configure(secrets);
+  // What the storage says it walked, which is the whole bill rather than the API's share of it.
+  meterRows(rowsRead);
   openSocketWith(upgrade);
   publish = send;
   // These modules live in the isolate, not in the object, and an object that was put away
