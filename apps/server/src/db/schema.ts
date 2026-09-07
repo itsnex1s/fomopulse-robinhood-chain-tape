@@ -59,6 +59,9 @@ export const SCHEMA = `
     change1h REAL, change5m REAL, volume24 REAL, buys24 INTEGER, sells24 INTEGER, market_cap REAL, fdv REAL,
     dex TEXT, image_url TEXT
   );
+  /** The quote pass wants the stalest quotes and stops once it has a call's worth, so the order
+   *  is an index rather than a sort of every token this tape has ever priced. */
+  CREATE INDEX IF NOT EXISTS prices_updated ON prices (updated_at);
   /**
    * Who a tracked trader is, as fomo shows them. Only the identity is kept: the numbers on
    * both screens are walked from this tape's own fills, and a figure that cannot be checked

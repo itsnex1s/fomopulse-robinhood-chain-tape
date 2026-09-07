@@ -61,7 +61,11 @@ const stmt = {
   /** Parameters: the oldest pool birth in milliseconds, the window start in seconds, the pool
    *  floor, the churn ceiling and the row limit. */
   discover: db.query<DiscoverRow, { $born: number; $recent: number; $pool: number; $churn: number; $limit: number }>(
-    `WITH young AS (
+    /* The pools are the small side of every join below — a few hundred against the whole tape —
+       and left to itself the planner walks the fills instead, once for the flow and once for the
+       wash pairs, which is every fill this tape holds read twice for a page about three days.
+       MATERIALIZED and CROSS JOIN say so: the same rows, in the order that reads the fewest. */
+    `WITH young AS MATERIALIZED (
        SELECT p.token AS token, p.price_usd AS price, p.updated_at AS quoted_at,
               p.liquidity_usd AS liquidity, p.change24 AS change24, p.volume24 AS volume24,
               p.buys24 AS buys24, p.sells24 AS sells24, p.market_cap AS market_cap,
@@ -83,12 +87,12 @@ const stmt = {
               COALESCE(SUM(CASE WHEN f.dust = 0 AND f.side = 'buy' THEN f.usd END), 0) AS bought_usd,
               COALESCE(SUM(CASE WHEN f.dust = 0 AND f.side = 'sell' THEN f.usd END), 0) AS sold_usd,
               MAX(CASE WHEN f.dust = 0 THEN f.ts END) AS last_fill_ts
-         FROM fills f JOIN young y ON y.token = f.token
+         FROM young y CROSS JOIN fills f ON f.token = y.token
         GROUP BY f.token
      ),
      bag AS (
        SELECT p.token AS token, COUNT(*) AS holders
-         FROM positions p JOIN young y ON y.token = p.token
+         FROM young y CROSS JOIN positions p ON p.token = y.token
         WHERE p.amount > p.gross * ${RESIDUE}
         GROUP BY p.token
      ),
@@ -105,8 +109,8 @@ const stmt = {
      /* One wallet in and back out inside WASH_SECONDS at the same size, counted per token. */
      washed AS (
        SELECT a.token AS token, COUNT(*) AS flips
-         FROM fills a
-         JOIN young y ON y.token = a.token
+         FROM young y
+         CROSS JOIN fills a ON a.token = y.token
          JOIN fills b ON b.wallet = a.wallet AND b.token = a.token
                      AND b.ts > a.ts AND b.ts <= a.ts + ${WASH_SECONDS}
         WHERE a.dust = 0 AND b.dust = 0 AND a.side = 'buy' AND b.side = 'sell'
