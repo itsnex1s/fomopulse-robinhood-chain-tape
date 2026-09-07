@@ -60,6 +60,28 @@ export const SCHEMA = `
    * inside a window would be diffed against a wallet count it has nothing to do with, so
    * the new measure gets a new table and the old one is dropped below.
    */
+  /**
+   * What each wallet holds of each token, read off the fills and kept: net amount, and the
+   * cost of the buys that were priced. Every screen that says anything about a position —
+   * the bags, their holders, the tokens worth quoting, the ones still without a name —
+   * starts from this, and deriving it on each of those reads was a grouped pass over the
+   * whole tape a few times a second at busy moments.
+   *
+   * Keyed by token before wallet, which is the order every reader wants: each of them groups
+   * by token or asks for a handful by name, and against the other order that is a sort of the
+   * whole table on every read.
+   *
+   * Not a source of truth: the fills are, and this is rebuilt from them, per token as they
+   * land and in full after anything wholesale. A row whose amount is at or below zero is a
+   * position that was closed, kept because the token's first buy and last fill are read
+   * from here too.
+   */
+  CREATE TABLE IF NOT EXISTS positions (
+    wallet TEXT NOT NULL, token TEXT NOT NULL,
+    amount REAL NOT NULL, gross REAL NOT NULL, bought_usd REAL NOT NULL, bought_amount REAL NOT NULL,
+    last_ts INTEGER NOT NULL, first_buy_ts INTEGER,
+    PRIMARY KEY (token, wallet)
+  ) WITHOUT ROWID;
   CREATE TABLE IF NOT EXISTS bag_hours (
     token TEXT NOT NULL, network INTEGER NOT NULL, ts INTEGER NOT NULL,
     holders INTEGER NOT NULL, value REAL NOT NULL, pnl REAL,

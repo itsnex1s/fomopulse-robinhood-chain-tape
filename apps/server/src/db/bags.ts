@@ -1,6 +1,7 @@
 import type { Bag } from "../api/types.ts";
 import { db } from "./connection.ts";
 import { getMeta, setMeta } from "./meta.ts";
+import { positionsReady } from "./positions.ts";
 
 /** What the tracked traders are sitting in, by token: net positions off this tape's fills,
  *  the feed's quote against them, and the token's flow inside the window. */
@@ -14,13 +15,13 @@ import { getMeta, setMeta } from "./meta.ts";
  */
 export const RESIDUE = 1e-12;
 
-/** Net position per wallet and token, dusting left out; `gross` is what passed through it. */
-const POSITIONS = `SELECT wallet, token,
-         SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
-         SUM(amount) AS gross,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN usd ELSE 0 END) AS bought_usd,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN amount ELSE 0 END) AS bought_amount
-         FROM fills WHERE dust = 0 GROUP BY wallet, token`;
+/**
+ * Net position per wallet and token. Read from `positions`, which holds exactly this off the
+ * fills and is rewritten as they land — see `positions.ts`. Every query below opened with the
+ * derivation until it was measured: a grouped pass over the whole tape, on a read that every
+ * open tab polls.
+ */
+const POSITIONS = "SELECT * FROM positions";
 /** Still long, as against left holding the rounding. */
 const LONG = `amount > gross * ${RESIDUE}`;
 const stmt = {
@@ -78,11 +79,11 @@ const stmt = {
          FROM fills WHERE dust = 0 AND ts >= ?1 GROUP BY token
      ),
      life AS (
-       SELECT token, MAX(ts) AS last_fill_ts FROM fills WHERE dust = 0 GROUP BY token
+       SELECT token, MAX(last_ts) AS last_fill_ts FROM pos GROUP BY token
      ),
      opened AS (
-       SELECT token, MIN(ts) AS first_buy_ts, wallet AS first_buyer
-         FROM fills WHERE dust = 0 AND side = 'buy' GROUP BY token
+       SELECT token, MIN(first_buy_ts) AS first_buy_ts, wallet AS first_buyer
+         FROM pos WHERE first_buy_ts IS NOT NULL GROUP BY token
      ),
      shown AS (
        SELECT token FROM bag
@@ -129,7 +130,9 @@ export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
 
 /** Tokens the tracked wallets hold or moved lately: position columns from net fills, flow
  *  columns from the window. */
-export const tapeBags = (sinceTs: number, limit: number): BagRow[] => stmt.tapeBags.all(sinceTs, limit);
+export const tapeBags = (sinceTs: number, limit: number): BagRow[] => (
+  positionsReady(), stmt.tapeBags.all(sinceTs, limit)
+);
 /**
  * How long the held set is kept before it is read off the fills again. The set is a grouped
  * pass over every fill and it barely moves — a token joins it when a wallet opens a position
@@ -144,6 +147,7 @@ let held: { at: number; tokens: Set<string> } | undefined;
  *  what to mark. Neither ordered nor bounded: the caller does both. */
 export function tapeTokens(): { token: string; quoted_at: number | null }[] {
   const now = Date.now();
+  positionsReady();
   if (held === undefined || now - held.at > HELD_MS)
     held = { at: now, tokens: new Set(stmt.heldTokens.all().map((row) => row.token)) };
   const quoted = new Map(stmt.quotedAt.all().map((row) => [row.token, row.updated_at]));
@@ -183,17 +187,15 @@ const PER_QUERY = 99;
  * Within a token the price is one number, so ordering by amount held is ordering by worth.
  */
 export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
+  positionsReady();
   const held = new Map<string, Holder[]>();
   for (let from = 0; from < tokens.length; from += PER_QUERY) {
     const batch = tokens.slice(from, from + PER_QUERY);
     const rows = db
       .query<{ token: string; wallet: string; value: number | null }, (string | number)[]>(
         `WITH pos AS (
-           SELECT token, wallet,
-                  SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
-                  SUM(amount) AS gross
-             FROM fills WHERE dust = 0 AND token IN (${batch.map(() => "?").join(", ")})
-            GROUP BY token, wallet
+           SELECT token, wallet, amount, gross FROM positions
+            WHERE token IN (${batch.map(() => "?").join(", ")})
          ),
          ranked AS (
            SELECT token, wallet, amount,
@@ -215,7 +217,7 @@ export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
   return held;
 }
 
-export const unnamedBags = (limit: number) => stmt.unnamedBags.all(limit).map((row) => row.token);
+export const unnamedBags = (limit: number) => (positionsReady(), stmt.unnamedBags.all(limit).map((row) => row.token));
 
 /** The hour the last snapshot was taken for, so a pass that is not the first of its hour is free. */
 const BAG_HOUR = "bags:hour";
@@ -229,6 +231,7 @@ const BAG_HOUR = "bags:hour";
 export function recordBagHistory(at: number, network: number): boolean {
   const hour = at - (at % 3_600);
   if (getMeta(BAG_HOUR) === `${hour}`) return false;
+  positionsReady();
   db.transaction(() => {
     stmt.recordBagHistory.run(hour, network);
     stmt.pruneBagHistory.run(at - 31 * 86_400);

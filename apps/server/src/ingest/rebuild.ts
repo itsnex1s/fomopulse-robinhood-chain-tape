@@ -9,6 +9,7 @@ import {
   loadDecimals,
   loadKinds,
   loadPrices,
+  rebuildPositions,
   setMeta,
   transfersOf,
 } from "../db.ts";
@@ -102,6 +103,10 @@ export async function rebuildFills(
     const ctx = { wallets: WALLET_SET, quote: QUOTE_TOKENS, decimals, kinds, prices, isStock, ts };
     fills += insertFills(reconstruct(receipt, ctx)).length;
   }
+  // The inserts above keep the positions of every token they touched, but the unpricing and
+  // the dropped receipts reach fills they never name. A replay is rare and already the most
+  // expensive thing the object does, so the table is read off the corrected tape in full.
+  rebuildPositions();
   return {
     receipts: receipts.length,
     fills,

@@ -2,6 +2,7 @@ import type { Fill, Priced, Side } from "../api/types.ts";
 import type { StoredFill } from "../ingest/reconstruct.ts";
 import { noteHeld } from "./bags.ts";
 import { db } from "./connection.ts";
+import { refreshPositions } from "./positions.ts";
 
 /** The tape itself — one row per fill — and the reads the screen is built from. */
 /** Seconds: how old a fill can be and still have a supply written onto it. Past this the feed's supply is no
@@ -14,6 +15,7 @@ const stmt = {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ),
   deleteFill: db.query("DELETE FROM fills WHERE tx = ? AND log_index = ?"),
+  tokenOfFill: db.query<{ token: string }, [string, number]>("SELECT token FROM fills WHERE tx = ? AND log_index = ?"),
   /** The feed's supply written onto a token's fills that have none. Run both when a fill lands and when its
    *  token is quoted, because the two happen in either order: a new pool trades before the feed has heard of
    *  it. Bounded to fresh rows — a fill from last week has no supply of its own left to recover. */
@@ -72,6 +74,9 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
       stmt.clearDustOf.run(token);
       stmt.stampSupply.run(token, since);
     }
+    // Last, and inside the same transaction: the pardon above changes which fills count,
+    // so the positions have to be read after it rather than before.
+    refreshPositions(touched);
   })();
   // Outside the transaction: it changes nothing on disk, only what the quote pass believes
   // about which tokens are held. Buys only — a sell is not somebody going long.
@@ -79,7 +84,13 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
   return fresh;
 }
 
-export const deleteFill = (tx: string, logIndex: number) => stmt.deleteFill.run(tx, logIndex);
+/** A fill withdrawn by a reorg. The token is read first because the positions built on it
+ *  have to be rewritten, and after the delete there is nothing left to name it. */
+export function deleteFill(tx: string, logIndex: number): void {
+  const token = stmt.tokenOfFill.get(tx, logIndex)?.token;
+  stmt.deleteFill.run(tx, logIndex);
+  if (token !== undefined) refreshPositions([token]);
+}
 /** A quote arriving after the fills it belongs to; the price pass calls this with its own horizon. */
 export const stampSupply = (token: string, notBefore: number) => stmt.stampSupply.run(token, notBefore);
 export const tapeStats = (sinceTs: number) => stmt.tapeStats.all(sinceTs);

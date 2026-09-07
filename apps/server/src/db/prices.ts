@@ -84,5 +84,7 @@ export const loadPrices = () => new Map(stmt.allPrices.all().map((r) => [r.token
 export const dropThinPrices = (floor = MIN_LIQUIDITY): number => stmt.dropThin.run(floor).changes;
 export const tokensToPrice = (sinceTs: number, limit: number) => stmt.toPrice.all(sinceTs, limit).map((r) => r.token);
 export const unpricedFills = (token: string, sinceTs: number) => stmt.unpriced.all(token, sinceTs);
+/** Writes to a fill, so the caller owes `refreshPositions` for its token afterwards: what a
+ *  buy cost is a position column, and this is the statement that gives an unpriced buy a cost. */
 export const setEstimate = (tx: string, logIndex: number, usd: number, price: number) =>
   stmt.setEstimate.run(usd, price, usd, tx, logIndex);

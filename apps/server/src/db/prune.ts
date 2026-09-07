@@ -1,5 +1,6 @@
 import { log } from "../log.ts";
 import { db } from "./connection.ts";
+import { rebuildPositions } from "./positions.ts";
 
 /** Days. A Durable Object's SQLite stops at ten gigabytes, so nothing is kept forever. The longest window the
  *  API serves is thirty days, which is what fills are held against; the receipts are only the evidence a
@@ -28,6 +29,10 @@ export function prune(now: number): { fills: number; receipts: number } {
     gone.receipts = stmt.receipts.run(receiptsBefore).changes;
     gone.fills = stmt.fills.run(now - FILL_DAYS * 86_400).changes;
   })();
+  // Dropped fills are positions nobody can name from here — the pass deleted by time, not by
+  // token — so the table is read off the tape again. Once every six hours, against a read
+  // that answers every poll.
+  if (gone.fills > 0) rebuildPositions();
   return gone;
 }
 
