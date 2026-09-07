@@ -68,9 +68,10 @@ test("the supply stamp reads the unstamped rows of a token, not every row of it"
 test("choosing what to quote reads the quotes, not every fill on the tape", () => {
   const detail = plan(
     `SELECT p.token AS token FROM prices p
-      WHERE EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?1)
-      ORDER BY p.updated_at ASC
-      LIMIT ?2`,
+      WHERE p.updated_at < ?1
+        AND EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?2)
+      LIMIT ?3`,
+    0,
     0,
     10,
   );
@@ -79,6 +80,9 @@ test("choosing what to quote reads the quotes, not every fill on the tape", () =
   expect(detail).toContain("SEARCH f USING COVERING INDEX fills_token_ts (token=? AND ts>?)");
   expect(detail).not.toContain("SCAN fills");
   expect(detail).not.toContain("SCAN f USING");
+  // No sort, so the scan stops at the first call's worth instead of ordering every quote to
+  // find the oldest. The age cut is the rotation: quoting a token puts it out of the next one.
+  expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
 });
 
 test("the fills owed a price are read by time, not token by token", () => {
@@ -98,10 +102,10 @@ test("the discover page walks the young pools, not the whole tape twice over", (
   expect(detail).toContain("SEARCH a USING INDEX fills_token_ts (token=?)");
 });
 
-test("the quotes are ordered by a sort rather than by an index that every pass would rewrite", () => {
-  // Deliberately not indexed. `prices` is a few hundred rows and the quote pass rewrites most
-  // of them four times a minute: sorting them is a read, indexing them is a write per quote,
-  // and a row written is priced at a thousand times a row read.
+test("the quotes carry no index that every sweep would have to rewrite", () => {
+  // Deliberately not indexed. `prices` is a few hundred rows and every one the sweep quotes is
+  // rewritten: scanning them is a read, indexing them is a write per quote, and a row written
+  // is priced at a thousand times a row read.
   const columns = db
     .query<{ name: string }, []>("SELECT name FROM pragma_index_list('prices')")
     .all()

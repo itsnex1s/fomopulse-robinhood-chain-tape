@@ -35,6 +35,8 @@
     "$comment": "DexScreener. batch is tokens quoted per pass across as many calls as that takes, stalest first; at 180 it costs 24 of the 300 calls a minute the endpoint allows. Under minLiquidityUsd a quote is not a price but the last dust that crossed an empty pool. The two ages bound how late a fill may still be given a price and a supply from a quote that arrives after it.",
     "batch": 180,
     "minLiquidityUsd": 1000,
+    "$sweepComment": "How often the quote pass looks past the fills that are actually owed a price. Those are asked for every pass, because an unpriced fill is a row the screen cannot show a dollar on; everything else is a mark that moves, and re-marking a hundred and eighty tokens four times a minute is a hundred and eighty rows written four times a minute. A row written is priced at a thousand times a row read.",
+    "staleSweepSeconds": 60,
     "estimateMaxAgeSeconds": 3600,
     "supplyMaxAgeSeconds": 3600
   },

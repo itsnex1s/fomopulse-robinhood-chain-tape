@@ -43,7 +43,14 @@ export interface Limits {
   sweep: { blocks: number; marginBlocks: number };
   /** How much of the one-off transfer carry a boot and a pass may each do; see db/logs.ts. */
   migrate: { bootRows: number; passRows: number };
-  feed: { batch: number; minLiquidityUsd: number; estimateMaxAgeSeconds: number; supplyMaxAgeSeconds: number };
+  feed: {
+    batch: number;
+    minLiquidityUsd: number;
+    /** How often the pass looks past the fills owed a price, at the marks that have gone stale. */
+    staleSweepSeconds: number;
+    estimateMaxAgeSeconds: number;
+    supplyMaxAgeSeconds: number;
+  };
   cache: {
     counted: Ladder;
     marked: Ladder;

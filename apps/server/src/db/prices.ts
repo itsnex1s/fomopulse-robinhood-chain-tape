@@ -29,12 +29,16 @@ const stmt = {
    *
    * A token with no quote yet is not here and does not need to be: its own fills are unpriced,
    * and `unpricedByToken` puts those at the front of the same queue.
+   *
+   * Nor is the answer sorted. The cut is an age, so a token quoted in this round is out of the
+   * next one until it goes stale again — the rotation is the column itself, and the scan stops
+   * at the first call's worth rather than ordering every quote there is to find the oldest.
    */
-  toPrice: db.query<{ token: string }, [number, number]>(
+  toPrice: db.query<{ token: string }, [number, number, number]>(
     `SELECT p.token AS token FROM prices p
-      WHERE EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?1)
-      ORDER BY p.updated_at ASC
-      LIMIT ?2`,
+      WHERE p.updated_at < ?1
+        AND EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?2)
+      LIMIT ?3`,
   ),
   /** Every fill still owed a price, across the whole window at once: the quote pass has a
    *  hundred and eighty tokens in hand and wants the few of them this mentions, which is one
@@ -92,7 +96,9 @@ export const savePrice = (token: string, q: StoredQuote, at: number) =>
 export const loadPrices = () => new Map(stmt.allPrices.all().map((r) => [r.token, r.price_usd]));
 /** Drops the quotes no fill should ever have been priced from, and says how many went. */
 export const dropThinPrices = (floor = MIN_LIQUIDITY): number => stmt.dropThin.run(floor).changes;
-export const tokensToPrice = (sinceTs: number, limit: number) => stmt.toPrice.all(sinceTs, limit).map((r) => r.token);
+/** Quoted tokens that traded since `sinceTs` and were last quoted before `staleBefore`. */
+export const tokensToPrice = (sinceTs: number, staleBefore: number, limit: number) =>
+  stmt.toPrice.all(staleBefore, sinceTs, limit).map((r) => r.token);
 /** The fills of the window that no price has reached, by token. */
 export function unpricedByToken(sinceTs: number): Map<string, { tx: string; log_index: number; amount: number }[]> {
   const waiting = new Map<string, { tx: string; log_index: number; amount: number }[]>();
