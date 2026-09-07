@@ -63,7 +63,7 @@ cash leg in the same transaction. No cash leg means the price feed estimates it,
 monotonic cursor survives restarts; a sweep re-reads the recent past for logs the socket dropped.
 
 **Two runtimes.** `apps/server/src/index.ts` is the Bun process: `Bun.serve`, timers for prices,
-bags, traders and pruning, and `live.ts` for the socket. `apps/worker/src/tape.ts` is the Durable
+bags, traders, the books and pruning, and `live.ts` for the socket. `apps/worker/src/tape.ts` is the Durable
 Object: one alarm every fifteen seconds is its pulse, and it prices, catches up, sweeps and asks
 fomo on clocks kept in its own storage. `apps/worker/src/index.ts` is the edge in front of it,
 serving the built SPA, forwarding `/ws`, and answering `/api/*` out of the colo cache.
@@ -74,15 +74,16 @@ plus `/ws` for the live push. All take `window` and most take `limit`; the tape 
 response, re-exported type-only by the web app, so a renamed field fails the typecheck on both sides.
 
 **Tables.** `receipts` and `transfers` hold what the chain said; `fills` is the tape; `tokens`,
-`addresses` and `prices` are lookups; `traders`, `holdings`, `bag_tokens` and `bag_history` hold
-what fomo said; `meta` is the key-value store the resume cursor and the fomo session live in.
+`addresses` and `prices` are lookups; `trader_stats` is the books, walked from the fills, and
+`bag_hours` the hourly snapshot the bag deltas are read against; `traders` holds the cards fomo
+shows; `meta` is the key-value store the resume cursor and the fomo session live in.
 There are no migrations: `db/schema.ts` is the whole story, and a database that does not match it is
 deleted and re-synced from the chain.
 
 **Outbound.** JSON-RPC to the chain over three clients — batched HTTP, unbatched keyed HTTP for
 logs, and an unbatched fallback endpoint. DexScreener for quotes and token names. fomo.family for
-the leaderboard, positions and avatars, behind a Privy bearer that renews itself against
-`auth.privy.io`. Every one of those is paced deliberately; read the comment before changing a batch
+the leaderboard cards — handle, avatar, clan — behind a Privy bearer that renews itself against
+`auth.privy.io`. Nothing on the screens is a number fomo supplied. Every one of those is paced deliberately; read the comment before changing a batch
 size or an interval.
 
 ## Files
@@ -103,151 +104,158 @@ exports. A module with no exports listed is an entry point that runs on import.
     4  sleep.ts         sleep
                         Portable sleep, used by every pacing loop.
     5  window.ts        since pnlWindow WINDOW_SECONDS
-                        Window name → unix start second; maps a window to fomo's PnL field.
+                        Window name → unix start second; maps a window to the books' window.
     6  stocks.ts        isStock stockOf Stock
                         Tokenised-stock registry, keyed by contract address.
     7  fomo.ts          leaderboard WINDOWS LeaderboardEntry LeaderboardWindow FomoError
-                        Read side of the fomo API: leaderboard rows and published holdings.
+                        Read side of the fomo API: the leaderboard cards, and nothing numeric.
     8  privy.ts         bearer renewed hasSession sessionState
                         The fomo bearer session: load, expiry, deduplicated renewal, persistence.
-    9  traders.ts       maintain refresh reload ranking ranked traderOf bagList startTraders
-                        traderInterval retryInterval leaderboardState
-                        The leaderboard pass, the ranking list, and the assembly of the bag list
-                        from fomo's positions and from the tape.
-    10 live.ts          follow resume poll Emit
+    9  traders.ts       maintain refresh reload ranking bookOf ranked traderOf bagList
+                        startTraders traderInterval retryInterval leaderboardState quoteBags
+                        The leaderboard pass, the standing every screen ranks by, and the two
+                        lists — who moved the tape, and what those wallets are still long.
+    10 pnl.ts           rebuildStats startBooks
+                        The books: one sequential walk over every fill, average cost per wallet
+                        and token, rewriting trader_stats. Read this before touching a p/l.
+    11 live.ts          follow resume poll Emit
                         Bun live mode: subscribe, reconnect with backoff, the sweep timer.
-    11 index.ts         (entry)
+    12 index.ts         (entry)
                         Bun entry point: CLI flags, catch-up, Bun.serve, the background timers.
 
 ### apps/server/src/ingest — chain to fills
 
-    12 parse.ts         parse transfers TRANSFER_TOPIC Kind Transfer ParsedReceipt RawReceipt
+    13 parse.ts         parse transfers TRANSFER_TOPIC Kind Transfer ParsedReceipt RawReceipt
                         ReceiptInput
                         Receipt shapes; pulls the ERC-20 Transfer logs out of a receipt.
-    13 reconstruct.ts   reconstruct participants tokensToResolve StoredFill ReconstructContext
+    14 reconstruct.ts   reconstruct participants tokensToResolve StoredFill ReconstructContext
                         Dust DUST_USD DUSTED HANDOUT TRADE
                         Net flows per wallet, trade legs, cash-leg pricing, the dust verdict.
                         The heart of the project; read this before touching anything about a fill.
-    14 resolve.ts       resolveTokens resolveKinds readTokens decimals kinds timestampOf
+    15 resolve.ts       resolveTokens resolveKinds readTokens decimals kinds timestampOf
                         Chain lookups: contract kind, token metadata by multicall, block timestamps.
-    15 receipt.ts       onLogs processTx IngestLog
+    16 receipt.ts       onLogs processTx IngestLog
                         Per-transaction pipeline: fetch, resolve, store, reconstruct, emit.
-    16 cursor.ts        cursor
+    17 cursor.ts        cursor
                         The resume block: monotonic, never advanced past in-flight work.
-    17 subscribe.ts     watch catchUp head scanChunk openSocketWith
+    18 subscribe.ts     watch catchUp head scanChunk openSocketWith
                         eth_getLogs catch-up with adaptive chunking, and the raw socket subscription
                         with its heartbeat.
-    18 sweep.ts         sweeper SWEEP_BLOCKS SWEEP_MARGIN
+    19 sweep.ts         sweeper SWEEP_BLOCKS SWEEP_MARGIN
                         The block range each sweep re-reads, resuming from where the last one ended.
-    19 rebuild.ts       rebuildFills repairFills RULES RebuildResult
+    20 rebuild.ts       rebuildFills repairFills RULES RebuildResult
                         Replays stored receipts through the current rules. RULES is the version
                         stamp: bump it and the object repairs its own fills on the next pass.
-    20 lag.ts           sample latencyMs latencySummary
+    21 lag.ts           sample latencyMs latencySummary
                         Rolling block-to-database latency samples for the status line.
 
 ### apps/server/src/db — storage
 
-    21 connection.ts    db
+    22 connection.ts    db
                         Opens the single Database, applies the pragmas and the schema.
-    22 schema.ts        SCHEMA
+    23 schema.ts        SCHEMA
                         The entire DDL. No migrations; a mismatched database is deleted.
-    23 meta.ts          getMeta setMeta
+    24 meta.ts          getMeta setMeta
                         Key-value rows that survive a restart: the cursor, the source, the session.
-    24 receipts.ts      saveReceipt getReceipt allReceipts transfersOf dateReceipt saveToken
+    25 receipts.ts      saveReceipt getReceipt allReceipts transfersOf dateReceipt saveToken
                         saveKind loadDecimals loadKinds namelessTokens receiptCounts StoredReceipt
                         Receipts, transfers, token decimals and names, address kinds.
-    25 fills.ts         insertFills tape tapeOfTx tapeStats overview counts deleteFill stampSupply
+    26 fills.ts         insertFills tape tapeOfTx tapeStats overview counts deleteFill stampSupply
                         TapeRow TapeCursor OverviewRow
                         The tape table: inserts, the dust pardon, the tape and overview reads.
-    26 prices.ts        savePrice loadPrices tokensToPrice unpricedFills setEstimate dropThinPrices
+    27 prices.ts        savePrice loadPrices tokensToPrice unpricedFills setEstimate dropThinPrices
                         StoredQuote
                         Feed quotes per token, and the repricing of fills that arrived unpriced.
-    27 traders.ts       saveTraders saveHoldings allTraders TraderRow HoldingRow IncomingTrader
-                        fomo trader cards, per-window PnL and rank, published holdings.
-    28 bags.ts          bags tapeBags holdersOf tapeHolders heldTokens tapeTokens unnamedBags
-                        saveBagToken saveBagQuote recordBagHistory BagRow
-                        Bag aggregates from fomo's holdings and from the tape, plus bag history.
-    29 prune.ts         prune pruneOnce startPrune FILL_DAYS RECEIPT_DAYS
+    28 traders.ts       saveTraders allTraders TraderRow IncomingTrader
+                        fomo trader cards: identity only, no figures.
+    29 bags.ts          tapeBags tapeHolders tapeTokens unnamedBags recordBagHistory BagRow Holder
+                        Bag aggregates off the fills, the holders of a whole page in one query,
+                        and the hourly snapshot the window deltas are read against.
+    30 stats.ts         allStats saveStats statsVersion fillsAfter lastPriceOf STAT_WINDOWS
+                        StatRow StatFill StatWindow
+                        The books table: paged fill reads for the walk, and the version a reader
+                        holding a copy checks against.
+    31 prune.ts         prune pruneOnce startPrune FILL_DAYS RECEIPT_DAYS
                         Retention horizons and the pruning loop.
 
 ### apps/server/src/prices
 
-    30 dexscreener.ts   fetchQuotes fetchNames BATCH MIN_LIQUIDITY SLUGS Quote
+    32 dexscreener.ts   fetchQuotes fetchNames BATCH MIN_LIQUIDITY SLUGS Quote
                         The DexScreener calls, their batching, and the chain slugs.
-    31 feed.ts          refreshPrices startPrices prices
+    33 feed.ts          refreshPrices startPrices prices
                         The quote pass: quote the stalest tokens, reprice the fills waiting on them.
-    32 eth.ts           ethUsd noteEthUsd FLOATING
+    34 eth.ts           ethUsd noteEthUsd FLOATING
                         The USD price of the floating quote token, cached.
-    33 bags.ts          quoteBags nameBags startBagQuotes
-                        Quotes and names for held and tape-derived bags, per chain.
+    35 bags.ts          quoteBags nameBags startBagQuotes
+                        Quotes and names for the tokens the tracked wallets are still long.
 
 ### apps/server/src/api
 
-    34 types.ts         Fill Trader Bag Status Overview Window Side Priced
+    36 types.ts         Fill Trader Bag Status Overview Window Side Priced
                         The entire wire contract. No imports, by design.
-    35 fills.ts         toFill handleOf
+    37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
-    36 routes.ts        api
+    38 routes.ts        api
                         The Hono app: the six GET routes, and the in-process memo in front of them.
-    37 ws.ts            websocket broadcast
+    39 ws.ts            websocket broadcast
                         Bun's pub/sub socket handlers.
-    38 static.ts        site
+    40 static.ts        site
                         Bun-only static and SPA serving in front of the API.
 
 ### apps/worker/src — the Cloudflare runtime
 
-    39 index.ts         (entry)
+    41 index.ts         (entry)
                         The edge: assets, the /ws forward, and the per-prefix colo cache for /api/*.
-    40 tape.ts          Tape
+    42 tape.ts          Tape
                         The Durable Object: the alarm pulse, the pass budget, the deduplication slot,
                         the beat that /api/alive reports, and the hibernating reader sockets.
-    41 app.ts           boot follow resume sweep prices quotes traders repair prune session
+    43 app.ts           boot follow resume sweep prices quotes traders repair prune session
                         wallet_count
                         The ingestion glue for the object, and the re-export of the Hono app.
-    42 socket.ts        upgrade
+    44 socket.ts        upgrade
                         A client WebSocket over fetch upgrade, which the Worker has and Bun does not.
-    43 sqlite.ts        Database use bytesUsed
+    45 sqlite.ts        Database use bytesUsed
                         The bun:sqlite shim over Durable Object SQL storage.
-    44 env.ts           Env Secrets
+    46 env.ts           Env Secrets
                         The binding and secret types.
 
 ### apps/web/src
 
-    45 main.tsx         (entry)          React root and the QueryClient defaults.
-    46 App.tsx          (component)      Layout, the status and tape queries, the scroll hold.
-    47 store.ts         useTape useUi Row View VIEWS WINDOWS MAX_ROWS
+    47 main.tsx         (entry)          React root and the QueryClient defaults.
+    48 App.tsx          (component)      Layout, the status and tape queries, the scroll hold.
+    49 store.ts         useTape useUi Row View VIEWS WINDOWS MAX_ROWS
                                          The tape store and the persisted UI store.
-    48 useFeed.ts       useFeed Feed     One WebSocket for the app, writing straight into the store.
-    49 useHotkeys.ts    useHotkeys       Global keys for window, view and filter.
-    50 api.ts           getTape getStatus getTraders getBags getOverview chainName chainLabel
-                        bagUrl tokenUrl txUrl blockUrl tokenExplorerUrl traderUrl fomoTokenUrl
+    50 useFeed.ts       useFeed Feed     One WebSocket for the app, writing straight into the store.
+    51 useHotkeys.ts    useHotkeys       Global keys for window, view and filter.
+    52 api.ts           getTape getStatus getTraders getBags getOverview chainName bagUrl
+                        tokenUrl txUrl blockUrl tokenExplorerUrl traderUrl fomoTokenUrl
                         TRACKED_CHAIN
                                          The fetch wrappers and every outbound URL the UI builds.
-    51 types.ts         (re-export)      The server's api/types.ts, type-only.
-    52 format.ts        usd usdCompact compact price pct signed short ago clock span
+    53 types.ts         (re-export)      The server's api/types.ts, type-only.
+    54 format.ts        usd usdCompact compact amount price pct signed short ago clock span
                                          Every number and time the UI prints.
-    53 table.tsx        head cell mid wide roomy denseCell num tone sorted useSort SortHeader
+    55 table.tsx        head cell mid wide roomy denseCell num tone sorted useSort SortHeader
                                          The shared table vocabulary: classes, sorting, headers.
-    54 Tape.tsx         Tape             The tape table, its memoized row, the filter and the pager.
-    55 Traders.tsx      Traders          The leaderboard table.
-    56 Bags.tsx         Bags             The bags table shell, chain filter and footer.
-    57 bags-row.tsx     BagRow           One bag row, its delta badge and holder strip.
-    58 bags-math.ts     ret retLabel net remarked barWidth holderTitle BY SortKey
+    56 Tape.tsx         Tape             The tape table, its memoized row, the filter and the pager.
+    57 Traders.tsx      Traders          The traders table: the books, per window.
+    58 Bags.tsx         Bags             The bags table shell and footer.
+    59 bags-row.tsx     BagRow           One bag row, its delta badge and holder strip.
+    60 bags-math.ts     ret retLabel net cost barWidth holderTitle name BY SortKey
                                          Bag arithmetic and the strings derived from it.
-    59 cards.tsx        TokenCard TraderCard Links poolAge vsNowPct NEW_POOL_S THIN_LIQUIDITY
+    61 cards.tsx        TokenCard TraderCard Links poolAge vsNowPct NEW_POOL_S THIN_LIQUIDITY
                                          The hover card bodies.
-    60 StatusBar.tsx    StatusBar        The header: feed state, controls, the overview numbers.
-    61 Avatar.tsx       Avatar           An image with an identicon fallback derived from the address.
-    62 Hover.tsx        Hover Rows       The popover and its key-value grid.
+    62 StatusBar.tsx    StatusBar        The header: feed state, controls, the overview numbers.
+    63 Avatar.tsx       Avatar           An image with an identicon fallback derived from the address.
+    64 Hover.tsx        Hover Rows       The popover and its key-value grid.
 
 ### scripts
 
-    63 roster.ts        Rebuilds config/wallets.json by resolving traders' on-chain addresses.
-    64 rebuild.ts       Replays stored receipts through the current reconstruction rules.
-    65 enrich.ts        One-off leaderboard refresh against a local database.
-    66 verify-tape.ts   Diffs our fills against the original site's published tape.
-    67 assets.ts        Renders the OG image and the icons through headless Chrome.
-    68 load.ts          Synthetic reader load against a deployment.
+    65 roster.ts        Rebuilds config/wallets.json by resolving traders' on-chain addresses.
+    66 rebuild.ts       Replays stored receipts through the current reconstruction rules.
+    67 enrich.ts        One-off leaderboard refresh against a local database.
+    68 verify-tape.ts   Diffs our fills against the original site's published tape.
+    69 assets.ts        Renders the OG image and the icons through headless Chrome.
+    70 load.ts          Synthetic reader load against a deployment.
 
 ## Invariants
 

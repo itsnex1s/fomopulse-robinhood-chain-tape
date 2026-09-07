@@ -29,7 +29,7 @@ own endpoint, or `bun run ingest --poll 12` to re-read the chain every 12 second
 |---|---|
 | `RPC_WS_URL` | websocket endpoint for live mode; defaults to PublicNode's public socket |
 | `RPC_HTTP_URL` | endpoint for catch-up and receipts; defaults to the chain's public RPC, with wide log scans falling back to a second public endpoint when the first refuses the range |
-| `FOMO_ACCESS_TOKEN` | a fomo session, only for the PnL, avatars and positions fomo publishes; the tape runs without it |
+| `FOMO_ACCESS_TOKEN` | a fomo session, only for the handles and avatars; every number on every screen is measured here, so the tape runs without it |
 | `FOMO_PRIVY_PAT`, `FOMO_REFRESH_TOKEN` | the rest of that session, from the same browser; with them it renews itself instead of expiring in an hour |
 
 ## Deploy
@@ -62,9 +62,9 @@ docker run -p 8080:8080 -v fomopulse-data:/data -e RPC_WS_URL=wss://... fomopuls
 | | |
 |---|---|
 | `GET /api/status` | chain, wallets, block, source, latency, lag, uptime |
-| `GET /api/tape?window=&limit=&stocks=&dust=&before=&beforeId=` | the tape in the shape robinhoodtrenches.com serves, plus the token's card from the feed and fomo's standing for the trader. `before`/`beforeId` are the time and id of a row already held, and answer with the page before it |
+| `GET /api/tape?window=&limit=&stocks=&dust=&before=&beforeId=` | the tape in the shape robinhoodtrenches.com serves, plus the token's card from the feed and the trader's standing in this tape's own books. `before`/`beforeId` are the time and id of a row already held, and answer with the page before it |
 | `GET /api/overview?window=` | the window in a line: volume, buys and sells, wallets, tokens, pace, the biggest buy |
-| `GET /api/traders?window=&limit=` | every tracked wallet: what it did here, and fomo's numbers about it |
+| `GET /api/traders?window=&limit=` | every tracked wallet: what it did here, and what its books made — realized in the window, what is still open, round trips, win rate, rank |
 | `GET /api/bags?window=&limit=` | what the tracked traders are sitting in, by token: positions and profit, the feed's quote, the tape's flow |
 | `WS /ws` | `{type:"fills", data:[…]}` as they land |
 | `GET /api/alive` | the fomo session — deployed, renewing, when it expires — and the uptime; on Cloudflare also what the pulse last did: which step, how long it took, what failed |
@@ -72,8 +72,8 @@ docker run -p 8080:8080 -v fomopulse-data:/data -e RPC_WS_URL=wss://... fomopuls
 ## What you see
 
 Three screens, `[` and `]` between them. **tape** is the fills as they land; **traders** is
-every tracked wallet with what it did here and where fomo ranks it; **bags** is what those
-wallets are holding, by token, with a button per chain fomo reports a position on.
+every tracked wallet with what it did here and what its books made; **bags** is what
+those wallets are still long, by token, marked at the feed's price.
 
 `1`–`5` pick the window every screen counts in, `t` shows or hides tokenised stocks, `d`
 the dusting — tokens nobody paid for, pushed to every tracked wallet — and `/` filters by
@@ -110,16 +110,23 @@ facts. Both rules are why the receipts are kept. `bun run rebuild` replays them 
 current reconstruction without touching the chain, and a deployment whose rules have moved
 on replays its own once, a couple of thousand receipts per pass, on the next few ticks.
 
-Fills, volume and share are measured here. PnL, rank, avatars and positions are fomo's
-own numbers, stored as published — those need `FOMO_ACCESS_TOKEN`, a read-only Privy
+Every number on every screen is measured here, from this tape's own fills: fills,
+volume and share, and the books behind the traders and bags screens — average cost per
+wallet and token, a round trip counted in the window it closed in, what is still held
+marked at the feed's price, and what was handed over rather than bought kept out of the
+profit. A pass over the tape rewrites them every ten minutes.
+
+fomo is left with the handle, the avatar, the clan and the tick — the only things it
+knows that the chain does not. Those need `FOMO_ACCESS_TOKEN`, a read-only Privy
 session from a logged-in browser, which lives for an hour and renews itself for as long
 as Privy keeps the session behind `FOMO_REFRESH_TOKEN`. That session is your own account's,
 it reads what your own login already sees, and it is yours to keep within fomo.family's
 terms — the leaderboard is asked for once every ten minutes, and nothing here logs in for
-you, holds anyone else's session, or writes anything back. Tracked wallets live in
+you, holds anyone else's session, or writes anything back. Without it the screens keep
+every figure and lose the faces. Tracked wallets live in
 [config/wallets.json](config/wallets.json), the chain in
 [config/chains/robinhood.json](config/chains/robinhood.json), and the service those
-numbers come from — its API, its site, the public identifiers of its Privy app — in
+handles come from — its API, its site, the public identifiers of its Privy app — in
 [config/fomo.json](config/fomo.json).
 
 ## Contributing
