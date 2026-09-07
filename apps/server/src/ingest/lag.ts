@@ -1,7 +1,6 @@
 /**
- * How long a fill takes from its block to this database — the number a trader means
- * by "delay". It is not the gap since the last trade: on a quiet tape that gap grows
- * by a second every second while the pipeline sits idle at full speed.
+ * How long a fill takes from its block to this database. Not the gap since the last trade: on a
+ * quiet tape that gap grows by a second every second while the pipeline sits idle at full speed.
  */
 const SAMPLES = 20;
 /** A catch-up replays blocks that are minutes or hours old; they say nothing about the socket. */

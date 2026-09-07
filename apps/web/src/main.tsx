@@ -4,8 +4,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
-// Every list polls on an interval of its own; a refetch on each tab focus on top of that
-// asked for status, overview, traders and bags again for nothing new.
+// Every list polls on an interval of its own, so a refetch on each tab focus adds nothing.
 const client = new QueryClient({
   defaultOptions: { queries: { staleTime: 10_000, retry: 1, refetchOnWindowFocus: false } },
 });

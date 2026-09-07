@@ -1,10 +1,8 @@
 /**
- * What the API serves, shared by the server that builds these rows and the web app
- * that renders them. The server annotates its handlers with these types, so a field
- * cannot be renamed on one side without the other failing to compile. The names follow
- * the responses of robinhoodtrenches.com, so a client written against it works here.
- *
- * No imports on purpose: the web app compiles this file without the server's toolchain.
+ * What the API serves, shared by the server that builds these rows and the web app that
+ * renders them, so a renamed field fails to compile on both sides. The names follow the
+ * responses of robinhoodtrenches.com. No imports on purpose: the web app compiles this file
+ * without the server's toolchain.
  */
 
 export type Window = "1h" | "24h" | "7d" | "30d" | "all";
@@ -58,10 +56,9 @@ export interface Fill {
   sells24: number | null;
   market_cap: number | null;
   /**
-   * What the whole token was worth when this fill landed, which is not what it is worth
-   * now: `market_cap` is the feed's, as of its last quote. Taken over the supply stamped
-   * on the fill when it arrived, so a token that burns supply afterwards does not make
-   * the entry look cheaper than it was.
+   * What the whole token was worth when this fill landed, over the supply stamped on the fill
+   * at the time, so a token that burns supply later does not look cheaper at entry than it
+   * was. `market_cap` is the feed's, as of its last quote.
    */
   mcap_at: number | null;
   dex: string | null;

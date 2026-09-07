@@ -6,11 +6,7 @@ import { useTape, useUi, VIEWS, WINDOWS } from "./store.ts";
 import type { Status } from "./types.ts";
 import type { Feed } from "./useFeed.ts";
 
-/**
- * A clock of the bar's own. Everything else here is answered by a poll, but the quiet
- * counter counts, and without this it only moved when the poll came back: the tape
- * scrolled fills past a number that stood still.
- */
+/** A clock of the bar's own: the quiet counter has to keep counting between polls. */
 function useSecond(): void {
   const [, tick] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
@@ -56,8 +52,7 @@ export function StatusBar({
       set: state.set,
     })),
   );
-  // The window as a whole, from the server: the rows on screen are only the last four
-  // hundred of it. It rides on the status poll rather than a second one of its own.
+  // The window as a whole, from the server: the rows on screen are only its last four hundred.
   const o = status?.overview;
   const buyShare = o && o.buys + o.sells > 0 ? Math.round((o.buys / (o.buys + o.sells)) * 100) : null;
   const live = feed === "live";
@@ -142,8 +137,6 @@ export function StatusBar({
           </button>
         ))}
         <span className="text-dimmer">·</span>
-        {/* Struck through is off: a filter has to say which way it is set without being
-            asked, and "stk" alone said neither what it filtered nor that it was a switch. */}
         <button
           type="button"
           title={`${stocks ? "hide" : "show"} tokenised stocks — key t`}
@@ -170,8 +163,6 @@ export function StatusBar({
         {o && (
           <>
             <span className="hidden text-dimmer sm:inline">·</span>
-            {/* Each number carries the word for what it is. Unlabelled they read as a row
-                of figures a reader has to hover to tell apart, and nobody hovers a tape. */}
             <span
               className="hidden font-mono sm:inline"
               title={`what the tracked wallets traded in the ${window} window · ${o.fills} fills${
@@ -200,8 +191,7 @@ export function StatusBar({
             >
               {o.wallets} wallets · {o.tokens} tokens
             </span>
-            {/* The words these two spell out need a screen wider than the breakpoint the
-                rest of the bar uses; at lg they pushed the filter off the end. */}
+            {/* At lg these push the filter off the end, so they wait for a wider screen. */}
             <span className="hidden xl:inline">
               <Pace perMinute={o.per_minute} />
             </span>

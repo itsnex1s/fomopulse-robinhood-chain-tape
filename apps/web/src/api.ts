@@ -41,11 +41,7 @@ const SLUGS: Record<number, string> = {
 const FOMO_SLUGS: Record<number, string> = { ...SLUGS, 56: "bnb" };
 export const chainName = (id: number) =>
   ({ 4663: "", 56: "BSC", 1399811149: "SOL", 1: "ETH", 8453: "BASE" })[id] ?? `#${id}`;
-/**
- * What to call a chain where it has to be named outright. `chainName` is for the tag on a
- * row, and leaves the tape's own chain blank there — a filter that offers "this chain"
- * says nothing about which chain that is, and a bag list holds five of them.
- */
+/** What to call a chain where it has to be named outright; `chainName` leaves the tape's own blank. */
 export const chainLabel = (id: number) => SLUGS[id] ?? `chain #${id}`;
 /** The pool the quote came from when there is one, else the token's page. */
 export const bagUrl = (bag: { network: number; token: string; pair_address?: string | null }) =>

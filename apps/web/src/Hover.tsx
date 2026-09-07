@@ -1,10 +1,6 @@
 import { Fragment, type ReactNode, useState } from "react";
 
-/**
- * A card that opens on hover and is not in the DOM otherwise: four hundred rows carry
- * nothing they are not showing. It drops below its trigger, left-aligned, in the same
- * ink as the panel; the trigger itself is whatever the row already draws.
- */
+/** Opens on hover and is not in the DOM otherwise: four hundred rows carry nothing they are not showing. */
 export function Hover({
   children,
   card,

@@ -1,17 +1,9 @@
 import { log } from "../log.ts";
 import { db } from "./connection.ts";
 
-/**
- * How long the tape keeps what it stores. Nothing dropped anything before this, and the
- * object's SQLite stops at ten gigabytes: with 294 wallets the store grew 62 MB a day on
- * 2026-09-05, which is half a year of room and no more.
- *
- * The two horizons differ because the rows do. A fill is what the screen reads, and the
- * longest window the API serves is thirty days, so three months of them is already more
- * than anything asks for. The receipts and their transfers are the evidence a fill was
- * derived from — kept long enough to rebuild the recent tape when the reconstruction
- * changes, and they are the bulk of the bytes.
- */
+/** Days. A Durable Object's SQLite stops at ten gigabytes, so nothing is kept forever. The longest window the
+ *  API serves is thirty days, which is what fills are held against; the receipts are only the evidence a
+ *  rebuild replays, and they are the bulk of the bytes. */
 export const FILL_DAYS = 90;
 export const RECEIPT_DAYS = 14;
 
@@ -24,15 +16,9 @@ const stmt = {
   fills: db.query("DELETE FROM fills WHERE ts < ?"),
 };
 
-/**
- * Drops what is past its horizon and says how many rows went. The transfers go before the
- * receipts they hang off, in one transaction, so a pass that is interrupted leaves no
- * transfer whose receipt is gone.
- *
- * note: a first buy is read as the first one on the tape, so a wallet that bought a token
- * before the horizon and buys again after it is marked as opening a position. Three months
- * is long enough that this is rare, and the alternative is keeping every fill forever.
- */
+/** Drops what is past its horizon and says how many rows went; transfers go before the receipts they hang off,
+ *  in one transaction, so an interrupted pass leaves no orphan. note: a first buy is the first one on the
+ *  tape, so a wallet that bought before the horizon and buys again after reads as opening a position. */
 export function prune(now: number): { fills: number; receipts: number } {
   // Counted outside the closure: on the object a transaction returns nothing to its caller.
   const gone = { fills: 0, receipts: 0 };

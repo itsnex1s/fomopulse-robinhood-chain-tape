@@ -4,10 +4,8 @@ import { loadDecimals, loadKinds, saveKind, saveToken } from "../db.ts";
 import type { Kind } from "./parse.ts";
 
 /**
- * What the chain says about the addresses and tokens a receipt names: the code kind
- * of every participant, the decimals (and names, for the screen) of every traded
- * token, and the timestamp of every block. Read once, kept in memory and in the
- * database, so a restart re-learns nothing it already knew.
+ * What the chain says about the addresses and tokens a receipt names, read once and kept both in
+ * memory and in the database, so a restart re-learns nothing it already knew.
  */
 export const decimals = loadDecimals();
 export const kinds = loadKinds();

@@ -1,7 +1,5 @@
-/**
- * Everything a human reads goes to stderr. stdout is the tape itself, so
- * `bun run ingest --once > fills.txt` stays clean.
- */
+/** Everything a human reads goes to stderr; stdout is the tape itself, so `bun run ingest --once > fills.txt`
+ *  stays clean. */
 const stamp = () => new Date().toISOString().slice(11, 19);
 const write = (level: string, message: string) => console.error(`${stamp()} ${level.padEnd(5)} ${message}`);
 

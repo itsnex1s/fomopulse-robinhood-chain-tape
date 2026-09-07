@@ -5,10 +5,7 @@ import type { Fill } from "./types.ts";
 
 export type Feed = "connecting" | "live" | "reconnecting";
 
-/**
- * One socket for the whole app. It writes straight into the tape store instead of
- * React state, so a new fill re-renders one row and nothing else.
- */
+/** One socket for the whole app; it writes into the tape store, so a new fill re-renders one row. */
 export function useFeed(): Feed {
   const [feed, setFeed] = useState<Feed>("connecting");
   const client = useQueryClient();
@@ -26,9 +23,7 @@ export function useFeed(): Feed {
       socket.onopen = () => {
         setFeed("live");
         // Fills and reprices sent while the socket was away are not replayed, and the tape
-        // query is otherwise fetched once and left alone. Without this read the screen keeps
-        // rows the server corrected minutes ago — a stock fill priced on the next tick sits
-        // at "—" until the page is reloaded by hand.
+        // query is otherwise fetched once and left alone.
         if (dropped) void client.invalidateQueries({ queryKey: ["tape"] });
         dropped = false;
         ping = setInterval(() => socket?.readyState === WebSocket.OPEN && socket.send("p"), 20_000);

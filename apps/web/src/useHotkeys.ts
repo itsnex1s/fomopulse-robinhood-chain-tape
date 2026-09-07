@@ -21,7 +21,6 @@ export function useHotkeys(filterRef: RefObject<HTMLInputElement | null>) {
       if (window) set({ window });
       if (event.key === "t") set({ stocks: !useUi.getState().stocks });
       if (event.key === "d") set({ dust: !useUi.getState().dust });
-      // `[` and `]` walk the views, so the whole screen is reachable without the mouse.
       if (event.key === "[" || event.key === "]") {
         const at = VIEWS.indexOf(useUi.getState().view);
         const next = (at + (event.key === "]" ? 1 : VIEWS.length - 1)) % VIEWS.length;

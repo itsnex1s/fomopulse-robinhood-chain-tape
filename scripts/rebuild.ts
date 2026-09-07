@@ -1,8 +1,6 @@
 /**
- * Replay every stored receipt through the current reconstruction and rewrite `fills`.
- * The rebuild itself lives in the server, so the object can run one on itself after a
- * deploy; this is the same pass with a reader of the chain attached, for the receipts
- * whose block timestamp never arrived and whose block left no fill behind.
+ * Replay every stored receipt through the current reconstruction and rewrite `fills`, with a
+ * reader of the chain attached for the receipts whose block timestamp never arrived.
  */
 
 import { rpc } from "../apps/server/src/config.ts";

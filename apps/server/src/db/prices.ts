@@ -2,11 +2,8 @@ import { DUST_USD, DUSTED, TRADE } from "../ingest/reconstruct.ts";
 import { MIN_LIQUIDITY } from "../prices/dexscreener.ts";
 import { db } from "./connection.ts";
 
-/**
- * The feed's card for every token the tape has traded: the price the screen marks
- * fills against, and the rest of what the same call carries. One row per token,
- * replaced on every quote. The tape joins it, and fills without a cash leg are priced from it.
- */
+/** The feed's card for every token the tape has traded, one row per token, replaced on every quote. The tape
+ *  joins it, and a fill with no cash leg is priced from it. */
 const stmt = {
   savePrice: db.query(
     `INSERT INTO prices (token, price_usd, liquidity_usd, change24, pair_created_at, pair_address, updated_at,
@@ -35,13 +32,9 @@ const stmt = {
   unpriced: db.query<{ tx: string; log_index: number; amount: number }, [string, number]>(
     "SELECT tx, log_index, amount FROM fills WHERE token = ? AND priced = 'unpriced' AND ts >= ?",
   ),
-  /**
-   * A fill that reached the tape before its token had a price was judged with no value to
-   * judge: `usd === null` is dusting, provisionally. The price arriving is the rest of that
-   * decision, so it is taken here rather than left standing — measured 2026-09-06, a
-   * $18,791 buy of MEME sat off the tape as dust because it landed a minute before the
-   * quote did. A handout is a verdict about shape and a price says nothing about it.
-   */
+  /** A fill priced after it landed was dusted with no value to judge, so the arriving price finishes that
+   *  decision here. Only the value verdict is reversed: a handout is a verdict about shape, which a price
+   *  says nothing about. */
   setEstimate: db.query(
     `UPDATE fills SET usd = ?, price = ?, priced = 'estimate',
        dust = CASE WHEN dust = ${DUSTED} AND ? >= ${DUST_USD} THEN ${TRADE} ELSE dust END

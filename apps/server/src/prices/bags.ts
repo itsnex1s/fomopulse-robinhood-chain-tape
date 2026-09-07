@@ -6,21 +6,15 @@ import { log } from "../log.ts";
 import { BATCH, fetchNames, fetchQuotes, SLUGS } from "./dexscreener.ts";
 
 /**
- * Names and quotes for the tokens the tracked traders hold. fomo publishes a position
- * as an address and a value; what the token is called and what it is worth now come
- * from the chain and from the price feed, and two thirds of the bags sit on chains this
- * tape does not follow, where the feed is the only source there is.
+ * Names and quotes for the tokens the tracked traders hold. fomo publishes a position as an
+ * address and a value; most bags sit on chains this tape does not follow, where the price
+ * feed is the only source for what the token is called and what it is worth.
  */
 
 /**
- * A live quote for every held token, whichever chain it sits on. fomo's price is a
- * snapshot from the leaderboard read; the feed's is minutes old at most and comes with
- * liquidity, the day's change and the pool's age, which is what tells a bag that is
- * still tradable from one that is a number on a card. On the tracked chain the quote
- * joins the same prices table the tape uses; elsewhere it sits beside the bag's name.
- * One request per chain, the stalest quotes first: the feed takes thirty addresses a
- * call and the tracked chain alone holds two hundred bags, so the same thirty largest
- * every pass left the rest on fomo's snapshot for good.
+ * A live quote for every held token, whichever chain it sits on. On the tracked chain the
+ * quote joins the same prices table the tape uses; elsewhere it sits beside the bag's name.
+ * One pass per chain, the stalest quotes first, since a pass does not cover every bag.
  */
 export async function quoteBags(): Promise<void> {
   const byNetwork = new Map<number, Map<string, number>>();
@@ -48,9 +42,8 @@ export async function quoteBags(): Promise<void> {
 }
 
 /**
- * A bag on a chain this tape does not follow has no contract to ask, so it is named
- * from the price feed, which covers every chain fomo reports a bag on: one call per
- * chain, and only while a name is still missing.
+ * A bag on a chain this tape does not follow has no contract to ask, so it is named from the
+ * price feed, which covers every chain fomo reports a bag on; only while a name is missing.
  */
 async function nameForeignBags(): Promise<void> {
   const missing = unnamedBags(chainConfig.id, 200).filter((bag) => bag.network !== chainConfig.id);
@@ -67,12 +60,9 @@ async function nameForeignBags(): Promise<void> {
 }
 
 /**
- * A bag on the tracked chain is named from the chain itself, which is the same source
- * the tape reads and so always agrees with it. The same pass repairs the tape's own
- * tokens: one first seen while the RPC was rate-limiting kept its decimals and lost its
- * symbol or its name, and the original's tape carries both. One multicall for all of
- * them, the way the ingester reads a token it has not seen — three calls per token went
- * out one by one before, a hundred and twenty requests for forty names.
+ * A bag on the tracked chain is named from the chain itself, the same source the tape reads.
+ * The same multicall repairs the tape's own tokens: one first seen while the RPC was
+ * rate-limiting kept its decimals and lost its symbol or its name.
  */
 async function nameHeldTokens(): Promise<void> {
   const held = unnamedBags(chainConfig.id, 200)

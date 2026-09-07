@@ -1,28 +1,16 @@
 /**
- * The session behind every read of the fomo API, and how it renews itself.
- *
- * `FOMO_ACCESS_TOKEN` is a Privy access token from a logged-in browser and it dies in an
- * hour; `FOMO_REFRESH_TOKEN` is what buys the next one, and `FOMO_PRIVY_PAT` is the second
- * access token Privy wants to hear that request from. The three are a bootstrap: from there
- * the tape carries its own session, keeps the renewed one in the database, and only needs
- * the browser again if it is down long enough for Privy to end the session behind the
- * refresh token. Without any of it the app runs on the tape alone, and none of the three
- * ever leaves .env.
+ * The session behind every read of the fomo API. `FOMO_ACCESS_TOKEN` is a Privy access token
+ * from a logged-in browser and dies in an hour; `FOMO_REFRESH_TOKEN` buys the next one, and
+ * `FOMO_PRIVY_PAT` is the second access token Privy wants that request to carry.
  */
 import { env, fomoConfig } from "./config.ts";
 import { getMeta, setMeta } from "./db.ts";
 import { log } from "./log.ts";
 
 /**
- * The two public identifiers of the service's Privy app that a renewal has to name,
- * alongside the origin of the site they belong to, from `config/fomo.json`.
- *
- * What a renewal needs was measured on 2026-09-05, against a logged-in browser and then
- * from a shell: `authorization` — Privy's own access token, not the one fomo takes —
- * `privy-app-id`, `privy-client-id` and an `origin` of the site the app belongs to are
- * each required, and together they are all that is. A request without the last is refused
- * with "Must specify origin" before it is read at all. No cookies, no client analytics
- * id, nothing else tied to a browser, which is what makes this a call a server can make.
+ * What a renewal has to name, from `config/fomo.json`: `authorization` — Privy's own access
+ * token, not the one fomo takes — `privy-app-id`, `privy-client-id` and `origin` are each
+ * required and together all that is; without the last Privy answers "Must specify origin".
  */
 const { site: PRIVY_ORIGIN } = fomoConfig;
 const { sessions: PRIVY_SESSIONS, appId: PRIVY_APP_ID, clientId: PRIVY_CLIENT_ID } = fomoConfig.privy;
@@ -30,10 +18,9 @@ const { sessions: PRIVY_SESSIONS, appId: PRIVY_APP_ID, clientId: PRIVY_CLIENT_ID
 /** Renewed this long before the hour is up, so a leaderboard pass never spends a dead token. */
 const RENEW_SKEW_MS = 5 * 60_000;
 /**
- * How long any renewal answers for, whether it changed anything or not. Privy tells a
- * session it still considers current to keep what it has, and the tick comes back every
- * fifteen seconds: without a floor the five minutes before an expiry would be twenty
- * renewals, and a 401 right after one would ask for a twenty-first.
+ * How long any renewal answers for, whether it changed anything or not. Privy tells a session
+ * it still considers current to keep what it has, so without a floor the minutes before an
+ * expiry would be one renewal per tick.
  */
 const RENEW_FLOOR_MS = 60_000;
 /** Where the renewed session is kept, so a restart does not fall back to the deployed one. */
@@ -45,9 +32,9 @@ interface Session {
   /** What Privy takes to renew: its own access token, good for the same hour. */
   pat: string;
   /**
-   * What authorises the renewal. Measured 2026-09-05: the same value comes back from every
-   * renewal, so this is the one worth keeping and the two above are cache. It outlives them
-   * by as long as Privy keeps the session, which is the ceiling on running unattended.
+   * What authorises the renewal: the same value comes back from every one, so this is the
+   * field worth keeping and the two above are cache. It lasts as long as Privy keeps the
+   * session, which is the ceiling on running unattended.
    */
   refresh: string;
 }
@@ -76,9 +63,9 @@ function stored(seed: Session): Session | undefined {
 }
 
 /**
- * The session in hand: the renewed one if the database holds it, the deployed one if not.
- * A deployment may carry the renewable pair without an access token at all — an empty
- * bearer reads as expired, so the first call buys one before it asks fomo anything.
+ * The session in hand: the renewed one if the database holds it, the deployed one if not. A
+ * deployment may carry the renewable pair with no access token — an empty bearer reads as
+ * expired, so the first call buys one before it asks fomo anything.
  */
 function current(): Session | undefined {
   if (live) return live;
@@ -109,9 +96,8 @@ function expiresAt(jwt: string): number {
 
 /**
  * Trades the refresh token for a fresh hour. Privy answers a session it still considers
- * current with `session_update_action: "ignore"` and a null token — nothing to adopt, and
- * what we hold is what it would have issued — so every field falls back to the one it
- * replaces rather than being overwritten with nothing.
+ * current with `session_update_action: "ignore"` and a null token, so every field falls back
+ * to the one it replaces rather than being overwritten with nothing.
  */
 async function renew(session: Session): Promise<void> {
   triedAt = Date.now();
@@ -180,8 +166,7 @@ export async function bearer(): Promise<string> {
 /** Whether there is a session at all, for a caller deciding whether to bother asking. */
 export const hasSession = (): boolean => current() !== undefined;
 
-/** What the pulse reports: a session that renews itself and one that is running out read
- *  the same from outside until the hour is up. */
+/** What the pulse reports about the session: whether it exists, renews, and when it dies. */
 export const sessionState = () => {
   const session = current();
   return {
@@ -194,9 +179,8 @@ export const sessionState = () => {
 };
 
 /**
- * A renewal asked for out of turn, after a 401 the clock did not see coming — a session
- * ended elsewhere, a token renewed by another reader. Answers with the token to try again
- * with, or nothing when it is too soon to ask again or there is no way to ask at all.
+ * A renewal asked for out of turn, after a 401 the clock did not see coming. Answers with the
+ * token to try again with, or nothing when it is too soon to ask or there is no way to.
  */
 export async function renewed(): Promise<string | undefined> {
   const session = current();

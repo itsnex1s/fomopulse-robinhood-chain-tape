@@ -1,14 +1,7 @@
 /**
- * `bun:sqlite` over the SQLite a Durable Object carries.
- *
- * The tape has one set of queries; this is what lets both platforms run them. Wrangler
- * points `bun:sqlite` at this file (see the `alias` in wrangler.jsonc), so `db.ts` opens
- * a Database exactly as it does under Bun and never learns where it lives. The two APIs
- * differ in four places, all handled here: the object's storage is bound to this module
- * before the app is imported, blobs cross as ArrayBuffer and come back as Uint8Array,
- * `$name` bindings are lifted into positions because this storage only counts, and the
- * pragmas that tune a file on disk have no meaning on storage the platform manages, so
- * they are dropped.
+ * `bun:sqlite` over the SQLite a Durable Object carries. Wrangler points the `bun:sqlite`
+ * specifier at this file (see the `alias` in wrangler.jsonc), so the same queries run on
+ * both platforms; the four places the APIs differ are marked below.
  */
 
 type Value = ArrayBuffer | string | number | null;
@@ -106,10 +99,8 @@ export class Database {
   constructor(_path?: string, _options?: { create?: boolean }) {}
 
   exec(sql: string): void {
-    // A pragma tunes a file we do not own — journal mode, synchronous, busy timeout are
-    // the platform's business — and running one here is an error rather than a no-op.
-    // Comments go first: the schema documents its columns, and a comment carrying a
-    // semicolon would otherwise cut a statement in half.
+    // A pragma tunes a file we do not own, and this storage errors on one rather than
+    // ignoring it. Comments go first, so a semicolon inside one cannot split a statement.
     const statements = sql
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .split(";")

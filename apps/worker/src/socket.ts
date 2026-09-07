@@ -1,9 +1,7 @@
 /**
- * A client websocket, the way this platform makes one. There is no `new WebSocket(url)`
- * here: a Worker asks the other end for an upgrade and takes the socket off the
- * response. The subscription code holds its socket from the first line and assigns its
- * handlers immediately, so this stands in until the upgrade answers — handlers are kept
- * and wired to the real socket, and anything sent in the meantime is queued.
+ * A client websocket, the way this platform makes one: there is no `new WebSocket(url)` in
+ * a Worker, only a fetch that asks for an upgrade and a socket taken off the response. The
+ * stub stands in until that answers, keeping the handlers and queueing what is sent.
  */
 import { log } from "../../server/src/log.ts";
 

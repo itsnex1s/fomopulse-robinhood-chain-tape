@@ -1,17 +1,15 @@
 /**
- * Read side of the fomo API. Everything shown about a trader — PnL, volume, holdings,
- * avatar — is theirs; we store it and serve it, we do not recompute it. The session the
- * reads go out under, and its renewal, are in ./privy.ts.
+ * Read side of the fomo API: PnL, volume, holdings and avatars are fomo's own numbers,
+ * stored and served, never recomputed. The session they go out under is in ./privy.ts.
  */
 import { fomoConfig } from "./config.ts";
 import type { HoldingRow, IncomingTrader } from "./db.ts";
 import { bearer, renewed } from "./privy.ts";
 
 /**
- * Where the service is and who the tape says it is, from `config/fomo.json`. The user
- * agent is not decoration: fomo answers 430 to a request that arrives with no user agent,
- * with curl's, or with a browser's — a Worker sends none of its own, so the tape says who
- * it is or gets nothing.
+ * Where the service is and who the tape says it is, from `config/fomo.json`. fomo answers
+ * 430 to a request that arrives with no user agent, with curl's, or with a browser's, and a
+ * Worker sends none of its own.
  */
 const { api: BASE, userAgent: AGENT } = fomoConfig;
 
@@ -48,9 +46,8 @@ const pnlOf = (entry: Entry): number | null => {
 };
 
 /**
- * A refusal that carries its status. 401 is a session that ran out and is fixed by
- * renewing it; 403 is fomo declining this caller with a token it accepted — nothing on
- * our side fixes that, and asking again every ten minutes is just noise at their door.
+ * A refusal that carries its status. 401 is a session that ran out and renewal fixes it;
+ * 403 is fomo declining this caller with a token it accepted, which nothing here fixes.
  */
 export class FomoError extends Error {
   constructor(
@@ -71,14 +68,13 @@ const ask = (path: string, key: string) =>
 
 async function get<T>(path: string): Promise<T> {
   let response = await ask(path, await bearer());
-  // A 401 the clock did not see coming is worth one renewal and one retry. A second is
-  // fomo's answer, and `renewed` is the one that decides it is not too soon to ask.
+  // A 401 the clock did not see coming is worth one renewal and one retry; `renewed` is
+  // what decides it is not too soon to ask again.
   if (response.status === 401) {
     const fresh = await renewed();
     if (fresh) response = await ask(path, fresh);
   }
-  // The body is part of the reason: a 401 from an expired session and a 401 from a
-  // request fomo would not take from this caller read the same without it.
+  // The body is part of the reason: an expired session and a refused caller both answer 401.
   if (!response.ok)
     throw new FomoError(`fomo ${path} → ${response.status} ${(await response.text()).slice(0, 160)}`, response.status);
   const body = (await response.json()) as { responseObject?: unknown };

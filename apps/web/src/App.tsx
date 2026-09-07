@@ -20,11 +20,8 @@ export default function App() {
   const feed = useFeed();
   useHotkeys(filterRef);
 
-  // One poll for the whole bar, at the pace the numbers in it actually move: the fills
-  // arrive over the socket, and what is left — the lag, the block, the window's line —
-  // is a readout, not the tape. The socket keeps the tape itself current, so the tape is
-  // fetched on a window change and not again when the tab regains focus: a refetch would
-  // reset 400 rows for nothing.
+  // One poll for the whole bar: the fills arrive over the socket, so the tape is fetched on a
+  // window change and not again on focus, where a refetch would reset 400 rows for nothing.
   const status = useQuery({
     queryKey: ["status", window],
     queryFn: () => getStatus(window),

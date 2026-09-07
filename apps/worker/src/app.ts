@@ -34,18 +34,15 @@ let following = false;
 /**
  * Whether the chain has to be read over HTTP before the socket can be trusted: on a cold
  * object, and after the socket went down, until one catch-up has run since. A healthy
- * socket delivers the logs and the sweep re-reads the recent past on its own clock;
- * reading the gap since the last log on every tick as well was three RPC calls every
- * fifteen seconds for nothing — measured 2026-09-05, about seventeen thousand a day.
+ * socket delivers the logs and the sweep re-reads the recent past on its own clock.
  */
 let behind = true;
 /** The chain head as the socket last reported it, from the heartbeat. */
 let seenHead = { block: 0n, at: 0 };
 /**
  * How far the socket has accounted for the chain: the head when it subscribed, then every
- * log it delivered. The heartbeat cannot tell a working subscription from a forgotten one —
- * a provider answers `eth_blockNumber` either way — so the sweep does it instead, by
- * checking whether what it finds sits past this mark. See ingest/sweep.ts's `unaccounted`.
+ * log it delivered. The heartbeat cannot tell a working subscription from a forgotten one,
+ * so the sweep checks whether what it finds sits past this mark; see `unaccounted`.
  */
 let delivered = 0n;
 /** Closes the socket this isolate opened, for the case where it has to be given up on. */
@@ -65,10 +62,9 @@ export function boot(secrets: Secrets, send: Publish): void {
   configure(secrets);
   openSocketWith(upgrade);
   publish = send;
-  // These modules live in the isolate, not in the object, and an object that was put
-  // away can leave a subscription behind in them. The platform refuses I/O started by
-  // one object context from another — "cannot perform I/O on behalf of a different
-  // Durable Object" — so a new object forgets the old socket and opens its own.
+  // These modules live in the isolate, not in the object, and an object that was put away
+  // can leave a subscription behind in them. A Durable Object cannot perform I/O on behalf
+  // of another, so a new object forgets the old socket and opens its own.
   following = false;
   behind = true;
   delivered = 0n;
@@ -111,11 +107,8 @@ export function follow(): void {
   );
 }
 
-/**
- * Which call failed, kept in the message. The tick reports one error per step and an RPC
- * error names neither the method nor the endpoint, so "catch-up: unknown RPC error" left
- * nothing to go on but a page of viem's request dump in the log.
- */
+/** Which call failed, kept in the message: the tick reports one error per step, and an RPC
+ *  error names neither the method nor the endpoint. */
 const at = <T>(what: string, work: Promise<T>): Promise<T> =>
   work.catch((error: unknown) => {
     throw new Error(`${what}: ${brief(error)}`);
@@ -151,7 +144,7 @@ export async function resume(): Promise<number> {
 export async function sweep(): Promise<number> {
   // As far back as the endpoint can be asked for inside one pass: a provider that caps
   // `eth_getLogs` at ten blocks turns six thousand into six hundred requests, and a sweep
-  // cut off partway through re-reads the same oldest blocks every time and never the newest.
+  // cut off partway through never reaches the newest blocks.
   const span = SWEEP_BLOCKS < scanChunk() * SWEEP_CHUNKS ? SWEEP_BLOCKS : scanChunk() * SWEEP_CHUNKS;
   const [from, to] = recent.range(await tip(), span);
   // Counted against the live mark rather than one taken before the scan: a block the socket
@@ -170,10 +163,9 @@ export async function sweep(): Promise<number> {
   if (mended > 0) log.info(`read ${mended} blocks that were owed one`);
   if (past > 0) {
     log.warn(`the sweep found ${past} fills past everything the socket delivered; resubscribing`);
-    // The old socket is not coming back on its own — it never reported down — so it is closed
-    // here rather than left to run alongside its replacement. A socket belonging to an object
-    // the platform has since put away refuses to close; there is nothing to do about that but
-    // let it go.
+    // The old socket never reported down, so it is closed here rather than left running
+    // alongside its replacement. One belonging to an object the platform has since put away
+    // refuses to close, and there is nothing to do about that but let it go.
     try {
       unfollow?.();
     } catch {
@@ -187,9 +179,9 @@ export async function sweep(): Promise<number> {
 }
 
 /**
- * Fills written under rules that have since changed, replayed from their receipts. Runs
- * at most once per deployment of a new rule — the object is the only thing that can reach
- * its own storage, so there is no script to run instead.
+ * Fills written under rules that have since changed, replayed from their receipts. Runs at
+ * most once per deployment of a new rule, and runs here because only the object can reach
+ * its own storage.
  */
 export const repair = (): Promise<unknown> => repairFills();
 
@@ -205,7 +197,7 @@ export const quotes = quoteBags;
 export const traders = maintain;
 export { traderInterval };
 /** What the fomo session is doing: whether one was deployed at all, whether it can renew
- *  itself, and when the one in hand runs out. Without any of that the leaderboard pass is
- *  skipped in silence, and silence and a broken session look the same from outside. */
+ *  itself, and when the one in hand runs out. Without it a skipped leaderboard pass and a
+ *  broken session look the same from outside. */
 export const session = sessionState;
 export const wallet_count = wallets.length;

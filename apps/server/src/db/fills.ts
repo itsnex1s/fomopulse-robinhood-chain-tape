@@ -2,15 +2,9 @@ import type { Fill, Priced, Side } from "../api/types.ts";
 import type { StoredFill } from "../ingest/reconstruct.ts";
 import { db } from "./connection.ts";
 
-/**
- * The tape itself — one row per fill — and the reads the screen is built from: the
- * tape with each row's card, the window in one line, and the counts the status shows.
- */
-/**
- * How old a fill can be and still have a supply written onto it. Past this, the feed's
- * supply is no longer a reading of the moment the fill landed, and the row is better off
- * saying nothing and falling back than saying something it did not measure.
- */
+/** The tape itself — one row per fill — and the reads the screen is built from. */
+/** Seconds: how old a fill can be and still have a supply written onto it. Past this the feed's supply is no
+ *  longer a reading of the moment the fill landed, and the row is better off falling back. */
 const SUPPLY_MAX_AGE = 3_600;
 
 const stmt = {
@@ -19,36 +13,18 @@ const stmt = {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ),
   deleteFill: db.query("DELETE FROM fills WHERE tx = ? AND log_index = ?"),
-  /**
-   * The supply the feed shows for a token, written onto its fills that do not have one yet.
-   * Run when a fill lands and again when its token is quoted, because the two happen in
-   * either order: a new pool trades before the feed has heard of it.
-   *
-   * Only rows younger than the horizon, and only ones still empty. A fill from last week
-   * has no supply of its own to recover — stamping today's onto it would turn a fallback
-   * into a claim, and a receipt replay would do it to the whole fortnight at once.
-   */
+  /** The feed's supply written onto a token's fills that have none. Run both when a fill lands and when its
+   *  token is quoted, because the two happen in either order: a new pool trades before the feed has heard of
+   *  it. Bounded to fresh rows — a fill from last week has no supply of its own left to recover. */
   stampSupply: db.query(
     `UPDATE fills
         SET supply = (SELECT market_cap / price_usd FROM prices WHERE token = ?1 AND price_usd > 0 AND market_cap IS NOT NULL)
       WHERE token = ?1 AND supply IS NULL AND ts >= ?2
         AND EXISTS (SELECT 1 FROM prices WHERE token = ?1 AND price_usd > 0 AND market_cap IS NOT NULL)`,
   ),
-  /**
-   * Dusting by value is decided per fill, as it is reconstructed, so the first one is
-   * already off the tape. This is the way back: one paid trade or one sale of the token
-   * says the token is real after all, and its whole history comes back with it. Only
-   * that kind — `dust = 1`. A handout is `2` and is not pardoned here: fomocat trades in
-   * a real pool and is sprayed to seventy-three wallets at a time, and one honest buy in
-   * it must not put the spray back on the tape.
-   *
-   * One token at a time, run as its fills land. The sweeping form of this — every dusty
-   * row whose token appears anywhere with a cash leg or a sale — was two full scans of
-   * the table with no index to help either, and it ran on every price tick, four times a
-   * minute, for a set that a price cannot change: repricing writes `estimate`, which is
-   * neither of the two things the condition asks for. Only a new fill moves this, and a
-   * new fill knows its token.
-   */
+  /** The pardon: one paid trade or one sale says the token is real after all, and its whole dusty history
+   *  comes back with it. Only `dust = 1` — a handout is `2` and stays dusted, because a token sprayed to
+   *  seventy-three wallets also trades in a real pool, and one honest buy must not put the spray back. */
   clearDustOf: db.query(
     `UPDATE fills SET dust = 0
       WHERE dust = 1 AND token = ?1
@@ -91,11 +67,8 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
     }
     const since = Math.floor(Date.now() / 1000) - SUPPLY_MAX_AGE;
     for (const token of touched) {
-      // In the same transaction as the insert that can have earned it: a token whose first
-      // paid trade or first sale just landed brings its whole dusty history back with it.
+      // Both in the same transaction as the insert that can have earned them.
       stmt.clearDustOf.run(token);
-      // And the supply is read now, while the fill is new, rather than off a feed that has
-      // moved on by the time anybody looks at the row.
       stmt.stampSupply.run(token, since);
     }
   })();
@@ -148,12 +121,8 @@ export interface TapeRow extends Card {
   mcap_at: number | null;
 }
 
-/**
- * One row of the tape with everything the screen says about it: the token's card
- * from the feed, whether the buy opened a position (first buy of the token by that
- * wallet on this tape), and how many other tracked wallets bought the same token in
- * the hour before — the crowd, read off the tape itself.
- */
+/** One row of the tape with everything the screen says about it. `new_position` is the wallet's first buy of
+ *  the token on this tape; `others` is how many other tracked wallets bought it in the hour before. */
 const TAPE_SELECT = `
   SELECT f.rowid AS id, f.ts, f.block, f.tx, f.wallet, f.token, t.symbol, t.name, f.side,
          f.amount, f.usd, f.price, f.priced, f.dust,
@@ -173,19 +142,14 @@ const TAPE_SELECT = `
 
 const TAPE_ORDER = "ORDER BY f.ts DESC, f.rowid DESC LIMIT ?";
 const tapeStmt = db.query<TapeRow, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ? ${TAPE_ORDER}`);
-/** The same read with the dusting left out. Two statements rather than one with a flag in
- *  it: the screen asks for four hundred rows and hides the dusting itself, which meant
- *  reading eight hundred — twice the correlated subqueries — to throw half of them away. */
+/** The same read with the dusting left out. Two statements rather than one with a flag: filtering here keeps
+ *  the correlated subqueries off rows the screen would hide anyway. */
 const tapeCleanStmt = db.query<TapeRow, [number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${TAPE_ORDER}`,
 );
 const tapeByTxStmt = db.query<TapeRow, [string]>(`${TAPE_SELECT} WHERE f.tx = ? ORDER BY f.rowid`);
-/**
- * The same two reads again, continued from a row already on the screen: the reader who
- * reaches the end of what they hold asks for what came before it. The cursor is the row's
- * time and its id together, not the time alone — a busy second carries a dozen fills, and
- * a cursor on `ts` would hand back the rest of that second or skip it.
- */
+/** The same two reads continued from a row already on the screen. The cursor is time and id together, not time
+ *  alone: a busy second carries a dozen fills, and a cursor on `ts` would repeat or skip the rest of it. */
 const OLDER = "AND (f.ts < ? OR (f.ts = ? AND f.rowid < ?))";
 const olderStmt = db.query<TapeRow, [number, number, number, number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? ${OLDER} ${TAPE_ORDER}`,

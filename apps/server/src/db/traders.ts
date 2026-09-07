@@ -1,9 +1,6 @@
 import { db } from "./connection.ts";
 
-/**
- * What fomo publishes about its traders — their standing and the positions on their
- * cards. The bags built from those positions live in ./bags.ts.
- */
+/** What fomo publishes about its traders; the bags built from those positions live in ./bags.ts. */
 const stmt = {
   saveTrader: db.query(
     `INSERT INTO traders (handle, id, display_name, avatar_url, clan, verified, followers, volume, trades,

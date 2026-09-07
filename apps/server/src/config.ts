@@ -54,12 +54,7 @@ function validateWallets(list: Wallet[]): void {
   }
 }
 
-/**
- * The service the trader numbers come from, and the two public identifiers of its Privy
- * app that a renewal has to name. They are read from a file rather than written into the
- * code for the reason the chain is: the tape is one service's tape by configuration, not
- * by construction, and pointing it at another should not be a patch to a source file.
- */
+/** The service the trader numbers come from, and the two public Privy identifiers a renewal has to name. */
 function validateFomo(fomo: typeof fomoJson): void {
   for (const [name, url] of [
     ["api", fomo.api],
@@ -141,18 +136,9 @@ const settings = (from: Secrets): Settings => {
 
 export let env = settings(ofProcess());
 
-/**
- * One client for every HTTP call. Calls made concurrently — the two log filters of a
- * chunk, the receipts of a batch, the code of a transaction's participants — leave as
- * one JSON-RPC batch: fewer round trips on a provider, and one request instead of
- * many against the public endpoint's limiter. The retry is for that limiter too, but
- * bounded: viem backs off exponentially from `retryDelay`, so the ten attempts this
- * used to make were seventeen minutes on a single call. Measured on 2026-09-05, that
- * is what a catch-up against a refusing endpoint did — the Worker's pass sat in it
- * until the platform killed the whole invocation at fifteen minutes
- * (`exceededWallTime`), and the leaderboard behind it never ran. Four attempts spend
- * fifteen seconds of backoff, which is what a rate limiter needs and no more.
- */
+/** One client for every HTTP call: concurrent calls leave as one JSON-RPC batch, which is one request
+ *  against the public endpoint's limiter instead of many. viem backs off exponentially from `retryDelay`,
+ *  so the retry count is what bounds a refused call — four attempts is fifteen seconds, the Worker's budget. */
 const clientFor = (url: string, batch: false | { batchSize: number; wait: number } = { batchSize: 20, wait: 16 }) =>
   createPublicClient({
     chain,
@@ -166,38 +152,13 @@ export let rpc = clientFor(env.httpUrl);
  *  blocks on Alchemy's free tier — is what lets the scan go on using the key at all. */
 export let logRpc = clientFor(env.httpUrl, false);
 
-/**
- * The second endpoint for the one call the first may refuse outright: `eth_getLogs`
- * over a wide range (Alchemy's free tier allows ten blocks, which turns a catch-up
- * into hundreds of requests). OrdoFi whether or not a key is configured — the key
- * changes nothing about what this endpoint is for, and the chain's own endpoint is
- * the wrong one to fall back to. Measured 2026-09-05, eight 2 000-block chunks back
- * to back with no pacing at all:
- *
- *     OrdoFi       350-1 400 ms each, all eight served, and 46 824 logs on one
- *                  unfiltered 2 000-block scan
- *     the chain's  ~300 ms each until the seventh, then 429, and 429 on the same
- *                  unfiltered scan — it caps the log count as well as the rate
- *
- * Its calls go one per request, alone among ours. A refusing endpoint answers a
- * refused batch with a single object and no `id` — measured 2026-09-05:
- *
- *     [{"jsonrpc":"2.0","id":1,"error":{…}}, …]      a normal refusal, one entry per call
- *     {"jsonrpc":"2.0","error":{"code":429,…}}       the rate limiter, for the whole batch
- *
- * viem reads a batch's answer by position, so the second shape leaves it dereferencing
- * `undefined` and the rate limit surfaces as "Cannot read properties of undefined
- * (reading 'error')" — an error nothing can retry on, which took the catch-up with it
- * every time the limiter spoke. Unbatched, a 429 comes back as the rate limit it is and
- * the backoff above answers it. The cost is two requests a chunk instead of one, which
- * is what the pacing between chunks is there for.
- */
+/** The endpoint for wide-range `eth_getLogs`, which the keyed one refuses outright; used whether or not a key
+ *  is configured, and the chain's own endpoint is not a substitute — it caps the log count as well as the rate.
+ *  Unbatched: a limiter answers a whole batch with one object and no `id`, which viem reads by position. */
 export let wideRpc = clientFor(chainJson.rpcFallbackHttp, false);
 
-/**
- * Take the settings from somewhere other than the process. Exported bindings are live,
- * so a module that imported `rpc` a moment ago sees the client this builds.
- */
+/** Takes the settings from somewhere other than the process; the exported bindings are live, so a module
+ *  that imported `rpc` a moment ago sees the client this builds. */
 export function configure(secrets: Secrets): void {
   env = settings(secrets);
   rpc = clientFor(env.httpUrl);

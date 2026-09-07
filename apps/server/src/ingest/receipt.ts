@@ -28,18 +28,16 @@ export interface IngestLog {
 }
 
 /**
- * Receipts read at once during a catch-up; the HTTP transport batches their calls anyway.
- * Read per pass rather than held in a constant: in a Worker the settings arrive after this
- * module is imported, so a constant keeps the endpoint the app had before it was configured
- * — the chain's own, and the pacing that endpoint needs — with a provider key in hand.
+ * Receipts read at once during a catch-up. Read per pass rather than held in a constant: in a
+ * Worker the settings arrive after this module is imported, so a constant would pace for the
+ * unkeyed endpoint with a provider key in hand.
  */
 const concurrency = () => (env.publicRpc ? 2 : 8);
 const ATTEMPTS = 5;
 const RETRY_MS = 5_000;
 /**
- * A swap touches a handful of balances; a transaction that changes hundreds is a
- * distribution — a stock-token airdrop reached 1 900 wallets in one go. Its fills are
- * recorded but not priced, and its participants are not looked up one by one.
+ * A swap touches a handful of balances; a transaction that changes hundreds is a distribution.
+ * Its fills are recorded but not priced, and its participants are not looked up one by one.
  */
 const MAX_PARTICIPANTS = 40;
 
@@ -47,11 +45,9 @@ const pending = new Map<Hex, ReturnType<typeof setTimeout>>();
 const running = new Map<Hex, Promise<StoredFill[]>>();
 
 /**
- * Live (delayMs > 0): a transaction's logs arrive one by one, so it is held briefly and
- * its receipt read once — briefly, because the receipt carries the whole transaction
- * whichever of its logs triggered the read, so the wait only saves a repeat. Catch-up (delayMs = 0): the batch is read with bounded
- * concurrency and the promise settles when every transaction in it is done, so the
- * caller moves the cursor only past finished work.
+ * Live (delayMs > 0): a transaction's logs arrive one by one, so it is held briefly and its
+ * receipt read once. Catch-up (delayMs = 0): the batch is read with bounded concurrency and the
+ * promise settles when every transaction is done, so the caller moves the cursor past done work.
  */
 export async function onLogs(
   logs: IngestLog[],
@@ -107,8 +103,7 @@ async function withRetries(tx: Hex, block: bigint, emit: (fills: StoredFill[]) =
       return fills;
     } catch (error) {
       if (attempt >= ATTEMPTS) {
-        // Written down rather than left in flight: the cursor may go on, and the sweep comes
-        // back to the block a few at a time until it reads. See ingest/cursor.ts.
+        // Written down rather than left in flight: the cursor may go on, and the sweep comes back.
         cursor.abandon(tx);
         log.error(`giving up on ${tx} after ${attempt} attempts; its block is owed a re-read`, error);
         return [];

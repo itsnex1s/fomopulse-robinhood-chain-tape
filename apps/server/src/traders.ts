@@ -25,11 +25,7 @@ import { pnlWindow } from "./window.ts";
 /** Re-exported for the worker, which alarms quotes and trader maintenance separately. */
 export { quoteBags };
 
-/**
- * fomo's side of the screen: the leaderboard, read into the traders and holdings tables
- * and kept in memory by handle, and the two lists built from it — who moved the tape,
- * and what the tracked traders are sitting in.
- */
+/** The leaderboard as last stored, by handle; every read here goes through this map. */
 let byHandle = new Map<string, TraderRow>();
 
 export function reload(): void {
@@ -49,17 +45,15 @@ export function ranked(): boolean {
 /** Failed leaderboard reads in a row; cleared by the next one that answers. */
 let failures = 0;
 /**
- * How long to leave fomo alone after it refuses us outright. A 403 arrives on a token
- * fomo itself accepted — the session is fine and the caller is not welcome — so nothing
- * we do between now and then changes the answer. Measured 2026-09-06: the leaderboard had
- * been refused for twenty hours, and the tick asked again every ten minutes throughout,
- * which is a hundred and forty-four refusals a day knocking at a door that said no.
+ * How long to leave fomo alone after it refuses us outright. A 403 arrives on a token fomo
+ * itself accepted — the session is fine and the caller is not welcome — so nothing we do
+ * between now and then changes the answer.
  */
 const REFUSED_MS = 6 * 3_600_000;
 /**
- * When it is worth asking again, and what was said the last time we did. Kept in the
- * database as well as in memory: a deploy or an eviction replaces the object, and a
- * stand-down that starts over every restart is not a stand-down at all.
+ * When it is worth asking again, and what was said last time. Kept in the database as well as
+ * in memory: a deploy or an eviction replaces the object, and a stand-down that starts over
+ * every restart is not a stand-down at all.
  */
 const REFUSED_KEY = "fomo:refused";
 let refusedUntil = 0;
@@ -92,11 +86,9 @@ function stand(until: number, why: string | null): void {
 }
 
 /**
- * How long to wait before asking fomo again. The regular interval once the table has
- * answers. While it has none — a first run, a fresh database — the cold one, since a
- * screen without ranks, PnL or avatars is missing half of what it is for; doubling after
- * every failed read, so a dead token is asked a few times an hour and not four times a
- * minute for as long as it stays dead.
+ * How long to wait before asking fomo again: the regular interval once the table has answers,
+ * the cold one while it has none, doubling after every failed read so a dead token is asked a
+ * few times an hour rather than four times a minute.
  */
 export const retryInterval = (
   regularMs: number,
@@ -106,7 +98,7 @@ export const retryInterval = (
   refusedForMs = 0,
 ): number => {
   // A refusal outranks both clocks: the cold interval exists to fill an empty table fast,
-  // and asking four times an hour is the last thing to do at a door that answered 403.
+  // which is the last thing to do at a door that answered 403.
   if (refusedForMs > 0) return Math.max(refusedForMs, regularMs);
   return answered ? regularMs : Math.min(regularMs, coldMs * 2 ** failed);
 };
@@ -135,11 +127,9 @@ export async function refresh(): Promise<number> {
 }
 
 /**
- * One round of everything fomo and the feed have to say about a trader: the leaderboard,
- * then the names of the tokens they hold. The process runs it on a timer, the Durable
- * Object on an alarm, and neither wants the other's loop. A Privy token lives for hours,
- * so a failure here is expected and not fatal: the stored numbers stay and the UI shows
- * how old they are.
+ * One round of everything fomo and the feed have to say about a trader: the leaderboard, then
+ * the names of the tokens they hold. A failure is expected and not fatal — the stored numbers
+ * stay and the UI shows how old they are.
  */
 export async function maintain(): Promise<void> {
   const failure = hasSession()
@@ -160,17 +150,15 @@ export async function maintain(): Promise<void> {
   // Symbols and names come from the chain and the price feed, so an expired fomo session
   // does not stop them.
   await nameBags();
-  // Kept until after the naming, then raised: swallowed here, an expired token showed as
-  // a tape with no ranks and nothing anywhere to say why — the whole of a session went
-  // into finding a 401 that had been happening every ten minutes in silence.
+  // Raised only once the naming has run: swallowed here, an expired token would show as a
+  // tape with no ranks and nothing anywhere to say why.
   if (failure) throw failure;
 }
 
 /**
- * The leaderboard on a timer; the bags are named right after each read, so a position
- * that arrived just now is not a hex string for ten minutes. Logged, never thrown: a
- * rejection out of the tick would end the loop with it, and a tape whose leaderboard
- * stopped after one failed read looks exactly like one that never had a session.
+ * The leaderboard on a timer; the bags are named right after each read, so a position that
+ * arrived just now is not a hex string for ten minutes. Logged, never thrown: a rejection out
+ * of the tick would end the loop with it.
  */
 export function startTraders(minutes = 10): void {
   if (!hasSession()) log.warn("no fomo session is deployed; trader PnL and avatars stay as last stored");
@@ -182,9 +170,8 @@ export function startTraders(minutes = 10): void {
 }
 
 /**
- * What the fomo side of the screen is doing, for a reader looking at numbers that have
- * not moved. Silence here reads exactly like a quiet leaderboard, and it took twenty
- * hours of frozen ranks to notice the difference the first time.
+ * What the fomo side of the screen is doing, for a reader looking at numbers that have not
+ * moved: without it a stand-down reads exactly like a quiet leaderboard.
  */
 export const leaderboardState = () => {
   let updatedAt: number | null = null;
@@ -202,18 +189,14 @@ export const leaderboardState = () => {
 
 const walletOf = new Map(wallets.map((w) => [w.address, w]));
 
-/**
- * Who moved the tape in this window, with fomo's own numbers attached. Everything
- * before `pnl` is what we saw; everything from `pnl` on is what fomo publishes.
- */
+/** Who moved the tape in this window; everything from `pnl` on is what fomo publishes. */
 export function ranking(sinceTs: number, window: string, limit: number): Trader[] {
   const label = pnlWindow(window);
   const field = `pnl_${label}` as const;
   const rankField = `rank_${label}` as const;
   const stats = new Map(tapeStats(sinceTs).map((row) => [row.wallet, row]));
-  // Every tracked wallet is a row. Listing only those who traded inside the window
-  // shrinks the table to a handful on `1h` and hides a leaderboard name who is simply
-  // between trades; an empty `here` says that better than an absent row.
+  // Every tracked wallet is a row, traded or not: listing only those who traded inside the
+  // window hides a leaderboard name who is simply between trades.
   return (
     [...new Set([...wallets.map((w) => w.address as string), ...stats.keys()])]
       .map((address) => {
@@ -252,12 +235,8 @@ export function ranking(sinceTs: number, window: string, limit: number): Trader[
 
 /**
  * What the tracked traders are sitting in, by token. fomo publishes three positions per
- * trader, so this is the top of their book, not all of it; the one column measured here
- * is how often the token crossed our own tape inside the window. Tokens fomo never
- * published — or has not since the token expired — come from the tape itself: net
- * positions read off the fills, marked at the feed's price. Those rows carry no fomo
- * numbers and no window-ago snapshot, so the page works with no session at all. Both
- * kinds share one limit, the largest first whichever source measured it.
+ * trader, so its rows are the top of a book, not all of it; the rest are net positions read
+ * off the tape, which carry no fomo numbers. Both kinds share one limit, the largest first.
  */
 export function bagList(sinceTs: number, limit: number): Bag[] {
   const seen = new Set<string>();

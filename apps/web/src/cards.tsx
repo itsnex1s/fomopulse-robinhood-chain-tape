@@ -19,12 +19,9 @@ export const THIN_LIQUIDITY = 10_000;
 export const NEW_POOL_S = 3_600;
 
 /**
- * The trade against the price now: for a buy, where the mark stands against the price
- * paid; for a sell, where the price received stands against the mark. Positive is the
- * trade in front either way — a buy into a token that rose, a sell before a fall — which
- * is not the same as the token being up, and is why the column is called `vs now` and
- * not `since`.
- * Green means the trade is working, whichever direction it went.
+ * For a buy, where the mark stands against the price paid; for a sell, where the price received
+ * stands against the mark. Positive is the trade in front either way, which is not the same as
+ * the token being up, and is why the column is called `vs now` and not `since`.
  */
 export const vsNowPct = (fill: Fill): number | null => {
   if (fill.mark === null || fill.price === null || fill.mark <= 0 || fill.price <= 0 || fill.priced === "unpriced")
@@ -62,8 +59,7 @@ export function TokenCard({ fill, explorer, slug }: { fill: Fill } & Links) {
               </>
             ),
           ],
-          // Named for the clock, because the row now has the other one: the column is the market cap
-          // this fill landed at, and the two sitting side by side unlabelled read as a contradiction.
+          // Named for the clock, because the row's own mcap column is the one this fill landed at.
           ["mcap now", fill.market_cap === null ? null : usdCompact(fill.market_cap)],
           ["vol 24h", fill.volume24 === null ? null : usdCompact(fill.volume24)],
           [
@@ -127,9 +123,8 @@ export function TokenCard({ fill, explorer, slug }: { fill: Fill } & Links) {
 }
 
 /**
- * The trader's card: fomo's standing and what they did on this tape in the window.
- * The tape stats come from the traders query the traders tab already keeps, read only
- * while the card is open.
+ * The trader's card: fomo's standing and what they did on this tape in the window. The tape
+ * stats come from the traders query the traders tab already keeps, read while the card is open.
  */
 export function TraderCard({ fill }: { fill: Fill }) {
   const window = useUi((state) => state.window);

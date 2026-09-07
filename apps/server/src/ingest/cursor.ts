@@ -3,16 +3,8 @@ import { log } from "../log.ts";
 
 /**
  * Where a restart resumes. `last_block` may only name a block whose transactions are all
- * processed, so it lags behind the newest log while receipts are still being read, and it
- * never moves backwards.
- *
- * A transaction that fails for good used to stay in flight, which held the cursor below its
- * block for the rest of the run: the tape kept ingesting, but `last_block` stopped moving,
- * and a restart a month later had twenty-six million blocks to rescan before it was live.
- * The block is written down instead, in `meta` so it outlives the process. The cursor goes
- * on and the sweep goes back for the block a few at a time, which is the whole difference:
- * before, nothing ever retried it. Everything at or below `last` is stored except the blocks
- * `owed` names, and a block leaves that list only when a read of it finishes.
+ * processed, so it lags behind the newest log and never moves backwards. Everything at or below
+ * it is stored except the blocks `owed` names, which leave that list when a read of them finishes.
  */
 const inflight = new Map<string, number>();
 /** How many open gaps are worth keeping. Past this something is wrong with the endpoint, not the chain. */
@@ -52,9 +44,8 @@ export const cursor = {
     return highest;
   },
   /**
-   * Block to resume after: nothing at or below it is still being read. Blocks that were
-   * given up on are the exception, and they are named in `owed` rather than held against
-   * this number — a restart resumes from here and the sweep goes back for them.
+   * Block to resume after: nothing at or below it is still being read. Blocks given up on are the
+   * exception — they are named in `owed` rather than held against this number.
    */
   get last(): number {
     return persisted;
@@ -69,10 +60,7 @@ export const cursor = {
     inflight.delete(tx);
     flush();
   },
-  /**
-   * The transaction could not be read at all. Its block is remembered so the sweep can come
-   * back to it, and the cursor stops waiting on a read that is not going to finish.
-   */
+  /** The transaction could not be read at all; its block is remembered so the sweep can come back. */
   abandon(tx: string): void {
     const block = inflight.get(tx);
     inflight.delete(tx);

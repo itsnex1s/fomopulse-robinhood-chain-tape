@@ -1,15 +1,12 @@
 /**
- * The built web app, served by the process that indexes. Only this platform has files:
- * on Cloudflare the same `apps/web/dist` is uploaded as static assets and answered at
- * the edge, so the routes live here rather than beside the API.
+ * The built web app, served by the process that indexes. Bun-only: on Cloudflare the same
+ * `apps/web/dist` is uploaded as static assets and answered at the edge.
  */
 import { fileURLToPath } from "node:url";
 import { type Context, Hono } from "hono";
 import { api } from "./routes.ts";
 
-/**
- * `fileURLToPath`, not `.pathname`: on Windows the latter is `/D:/…`, which no file API opens.
- */
+/** `fileURLToPath`, not `.pathname`: on Windows the latter is `/D:/…`, which no file API opens. */
 const dist = fileURLToPath(new URL("../../../web/dist/", import.meta.url));
 const asset = (path: string) => Bun.file(dist + path.replace(/^\/+/, ""));
 

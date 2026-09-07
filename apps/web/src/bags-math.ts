@@ -4,11 +4,8 @@ import type { Bag } from "./types.ts";
 export const name = (bag: Bag) => bag.symbol ?? `${bag.token.slice(0, 8)}…`;
 
 /**
- * What the bag returned on what it cost, shown beside the profit: $62M means nothing
- * until you know it came out of $1M. fomo publishes the position and its profit, so the
- * cost is the difference — and where the profit is larger than the position is worth,
- * some of it has already been taken out and the cost cannot be read from the two
- * numbers. Those rows show the dollars alone rather than a ratio that is not there.
+ * What the bag returned on what it cost: fomo publishes the position and the profit, so cost is
+ * the difference — and where the profit is the larger, some was taken out and cost is unknowable.
  */
 export const ret = (value: number | null, pnl: number | null): number | null => {
   if (value === null) return null;
@@ -19,10 +16,8 @@ export const ret = (value: number | null, pnl: number | null): number | null => 
 export const retLabel = (r: number) =>
   r >= 9 ? `${compact(r + 1)}×` : `${r >= 0 ? "+" : "−"}${Math.round(Math.abs(r) * 100)}%`;
 
-/**
- * Log scale, in pixels: the largest bag is worth two hundred times the tenth, so a
- * linear bar would leave every row below the third at one pixel.
- */
+// Log scale, in pixels: the largest bag is worth two hundred times the tenth, so a linear bar
+// would leave every row below the third at one pixel.
 const BAR_MAX = 96;
 export const barWidth = (value: number) =>
   `${Math.round((Math.min(100, Math.max(4, (Math.log10(Math.max(value, 1)) - 3) * 20)) / 100) * BAR_MAX)}px`;
@@ -41,9 +36,8 @@ export const BY: Record<SortKey, (bag: Bag) => number> = {
 };
 
 /**
- * fomo's profit is as old as the last leaderboard read; the feed's mark is minutes old.
- * On hover, the same positions at the live price — cost is value less profit, so it
- * needs both numbers and the token count, and stays quiet where any of them is missing.
+ * The same positions at the feed's mark: fomo's profit is as old as its last leaderboard read.
+ * Cost is value less profit, so it stays quiet where any of the three numbers is missing.
  */
 export function remarked(bag: Bag): string {
   if (bag.pnl === null || bag.value === null || bag.quoted_at === null || bag.price === null || bag.amount <= 0)

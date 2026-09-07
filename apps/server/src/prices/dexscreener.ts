@@ -6,28 +6,21 @@ const ENDPOINT = "https://api.dexscreener.com/tokens/v1";
 /** The endpoint takes 30 addresses per call and allows 300 calls a minute. */
 const PER_CALL = 30;
 /**
- * Tokens quoted in one pass, across as many calls as that takes. The tape trades far more
- * tokens in a day than one call carries — 344 of them on 2026-09-05, against 294 wallets —
- * and the pass takes the stalest first, so the round trip for any one token is the day's
- * token count divided by this, times the fifteen seconds between passes. At thirty a pass
- * that was about two minutes, long enough for a mark on a fast token to sit several percent
- * away from the trade it is compared against; at a hundred and eighty it is half a minute,
- * and it costs twenty-four of the three hundred calls a minute the endpoint allows.
+ * Tokens quoted in one pass, across as many calls as that takes. The pass takes the stalest
+ * first, so a token's round trip is the day's token count divided by this, times the interval
+ * between passes; at 180 it costs 24 of the 300 calls a minute the endpoint allows.
  */
 export const BATCH = 180;
 /**
  * A feed that accepts the connection and then says nothing would otherwise hang the whole
  * pass: the tick awaits the quotes before it catches up, and inside a Durable Object a
- * promise that never settles is not interrupted by anything. Measured 2026-09-05: ticks
- * started and never finished, and the tape sat two minutes behind the head between them.
+ * promise that never settles is not interrupted by anything.
  */
 const TIMEOUT_MS = 10_000;
 /**
- * Under this much in the pool, the quote is not a price. An almost-empty pool prices the
- * last dust that crossed it: measured 2026-09-06, SCAMS came back at $5,014,847.29 a token
- * against zero liquidity, and nine airdropped fills of three thousand tokens each were
- * recorded as $132.9 billion — 99.99% of the day's volume, from one pool nobody traded in.
- * A token below the floor is left unpriced, which the tape already shows as a dash.
+ * Under this much in the pool the quote is not a price: an almost-empty pool prices the last
+ * dust that crossed it, at any number at all. A token below the floor is left unpriced,
+ * which the tape already shows as a dash.
  */
 export const MIN_LIQUIDITY = 1_000;
 
@@ -43,11 +36,7 @@ export const SLUGS: Record<number, string> = {
   [chainConfig.id]: chainConfig.dexscreenerSlug,
 };
 
-/**
- * The whole card the feed returns for a pool, not just the price: the same call
- * carries the token's day and hour, its market-wide buys and sells, its size and its
- * picture, so the tape can show them without asking anyone else.
- */
+/** The whole card one call returns for a pool, not just the price. */
 export interface Quote {
   price: number;
   liquidity: number | null;
@@ -134,10 +123,8 @@ export async function fetchQuotes(tokens: string[], slug = chainConfig.dexscreen
 }
 
 /**
- * What a token is called, on any chain fomo reports a bag on. The tape's own chain is
- * read from the chain itself; everywhere else this is the only name available, and
- * without it a third of the bags are a hex string. Addresses come back in their own
- * case — checksummed, or base58 on Solana — so both sides are lowercased to match.
+ * What a token is called, on any chain fomo reports a bag on. Addresses come back in their
+ * own case — checksummed, or base58 on Solana — so both sides are lowercased to match.
  */
 export async function fetchNames(
   slug: string,

@@ -1,20 +1,15 @@
 /**
  * Build config/wallets.json from fomo's own leaderboard.
  *
- * fomo publishes an `evmAddress` for every trader, but that is the Privy embedded
- * wallet, not the address that trades: on Robinhood Chain the tokens land on a
- * separate EIP-7702 delegated address that the API never names. What the API does
- * give is the swap — token, amount and time — and the amount matches the on-chain
- * transfer exactly, so the wallet is recovered by finding that transfer and taking
- * its final recipient.
+ * fomo publishes an `evmAddress` for every trader, but that is not the address that trades:
+ * on Robinhood Chain the tokens land on a separate EIP-7702 delegated address the API never
+ * names, so the wallet is recovered from the on-chain transfer the swap's amount matches.
  *
  *   FOMO_ACCESS_TOKEN=... bun run scripts/roster.ts            # write config/wallets.json
  *   FOMO_ACCESS_TOKEN=... bun run scripts/roster.ts --verify   # only report, change nothing
  *   bun run scripts/roster.ts --input dump.json                # resolve from a pre-dumped list
  *
- * The access token is `privy:token` in fomo.family's local storage. It lasts about
- * an hour, which is longer than this script needs; nothing is written to disk but
- * the roster itself.
+ * The access token is `privy:token` in fomo.family's local storage; it lasts about an hour.
  */
 import { type Address, createPublicClient, erc20Abi, http, parseAbiItem } from "viem";
 import { chain, chainConfig, env, fomoConfig } from "../apps/server/src/config.ts";
@@ -22,18 +17,10 @@ import { chain, chainConfig, env, fomoConfig } from "../apps/server/src/config.t
 const { api: API, site: SITE } = fomoConfig;
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
 const LEADERBOARD_WINDOWS = ["", "/24h", "/7d", "/30d"];
-/**
- * How far around the estimated block to look. Scaling this with the age of the swap
- * sounds right and is worse in practice: the wider range is refused outright by the
- * public RPC more often than it finds an older swap.
- */
+/** How far around the estimated block to look; a wider range is refused by the public RPC. */
 const SEARCH_RADIUS = 12_000n;
 const ROBINHOOD = 4663;
-/**
- * Routing contracts that hold a token mid-route. They can end up looking terminal
- * when the rest of the route falls outside the searched range, and none of them is
- * ever a trader.
- */
+/** Routing contracts that hold a token mid-route and can look terminal; never a trader. */
 const INFRASTRUCTURE = new Set<string>([
   "0x8366a39cc670b4001a1121b8f6a443a643e40951", // Uniswap v4 PoolManager
   "0x8876789976decbfcbbbe364623c63652db8c0904", // Universal Router
@@ -41,22 +28,15 @@ const INFRASTRUCTURE = new Set<string>([
   "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be", // RelayApprovalProxyV3
 ]);
 
-// The public RPC answers 429 after a few requests in a row, and this script is a
-// one-off, so it waits rather than racing: a swallowed 429 would look exactly like
-// a wallet that could not be found.
+// The public RPC answers 429 after a few requests in a row, so this waits rather than
+// racing: a swallowed 429 would look exactly like a wallet that could not be found.
 const rpc = createPublicClient({
   chain,
   transport: http(env.httpUrl, { retryCount: 10, retryDelay: 1_000 }),
 });
-/**
- * The wide `Transfer` scan is the one call a keyed provider may refuse: Alchemy's free
- * tier caps `eth_getLogs` at ten blocks and this search needs twenty-four thousand. The
- * chain's own endpoint has no cap, only the rate limit the pacing already respects, so
- * the scan moves there the first time the keyed one refuses and stays there. It is asked
- * for by name rather than through the server's `wideRpc`, which is the fallback provider
- * the Worker uses: that one caps the range too, and the Worker only reaches for it because
- * the chain's own endpoint answers 429 to Cloudflare's egress. From a laptop it answers.
- */
+// The wide `Transfer` scan is the one call a keyed provider may refuse: Alchemy's free tier
+// caps `eth_getLogs` at ten blocks and this search needs twenty-four thousand. The chain's
+// own endpoint has no cap, only the rate limit the pacing already respects.
 const wide = createPublicClient({
   chain,
   transport: http(chainConfig.rpcHttp, { retryCount: 10, retryDelay: 1_000 }),
@@ -69,9 +49,7 @@ async function transfersOf(token: Address, fromBlock: bigint, toBlock: bigint) {
   } catch (error) {
     if (scan === wide) throw error;
     // The refusal does not always name the range: Alchemy answers a scan this wide with
-    // "Invalid parameters were provided to the RPC method", which reads like a bug in the
-    // call rather than a cap. Any refusal of the first wide scan moves the search to the
-    // chain's own endpoint, which has no cap and only the rate limit the pacing respects.
+    // "Invalid parameters were provided to the RPC method", which reads like a bug in the call.
     const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
     console.error(`the keyed RPC refused eth_getLogs (${message}); scanning on the chain's own endpoint`);
     scan = wide;
@@ -159,11 +137,7 @@ async function decimalsOf(token: Address): Promise<number> {
   return d;
 }
 
-/**
- * The transfer route ends at the trader: relay hands the token through its own
- * addresses with the same value, so the last transfer of that value in the
- * transaction is the one that credits the wallet.
- */
+/** The last transfer of the swap's value in the transaction is the one that credits the trader. */
 async function resolveWallet(
   swaps: Trader["swaps"],
   estimate: (at: string) => { from: bigint; to: bigint },
@@ -180,9 +154,8 @@ async function resolveWallet(
     });
     if (matches.length === 0) continue;
 
-    // The route is a chain of transfers of the same value: pool, relayer, relayer,
-    // trader. Only the trader never sends it on, so the address that appears as a
-    // recipient and never as a sender is the end of the route.
+    // The route is a chain of transfers of the same value: pool, relayer, relayer, trader.
+    // Only the trader never sends it on, so a recipient that is never a sender ends the route.
     const senders = new Set(matches.map((l) => l.args.from?.toLowerCase()));
     const terminal = matches.filter((l) => {
       const to = l.args.to?.toLowerCase();

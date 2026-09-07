@@ -1,13 +1,11 @@
 /**
- * What a thousand readers actually do, done at once: hold a websocket, ask for the
- * status every 12 s and reload the tape every 30 s. Reports the percentiles of the
- * answers and how many fills the sockets received.
+ * What a thousand readers actually do, done at once: hold a websocket, ask for the status
+ * every 12 s and reload the tape every 30 s. Reports the percentiles and the fills received.
  *
  *   bun run scripts/load.ts http://localhost:8787 --readers 1000 --seconds 30
  *
- * Against a deployment this measures Cloudflare; against `wrangler dev` it measures
- * one laptop, which is the wrong number for capacity and the right one for finding out
- * whether the edge cache is doing its job (`x-cache` on every answer says which).
+ * Against a deployment this measures Cloudflare; against `wrangler dev` it measures one
+ * laptop — the right number only for whether the edge cache works (`x-cache` says which).
  */
 export {};
 

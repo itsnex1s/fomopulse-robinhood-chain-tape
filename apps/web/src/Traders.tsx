@@ -27,8 +27,7 @@ export function Traders() {
   const { data } = useQuery({
     queryKey: ["traders", window],
     queryFn: () => getTraders(window),
-    // fomo's leaderboard is asked for every ten minutes; polling it twice a minute
-    // asked the object twenty times for the same answer.
+    // fomo's leaderboard is read every ten minutes; a faster poll returns the same answer.
     refetchInterval: 120_000,
     placeholderData: keepPreviousData,
   });
@@ -55,8 +54,7 @@ export function Traders() {
   return (
     <div>
       {board?.refused && (
-        // Five of the columns here are fomo's, and a refused read leaves them exactly as
-        // they were: the same numbers, quietly older every minute. Said out loud instead.
+        // Five of the columns here are fomo's; a refused read leaves them quietly stale.
         <div className="border-b border-line px-3 py-1 text-[10px] text-down">
           fomo is refusing this deployment, so pnl, rank, book, positions and followers are frozen
           {board.updated_at ? ` at ${ago(board.updated_at)} old` : ""}

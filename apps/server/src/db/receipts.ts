@@ -2,11 +2,8 @@ import { bytesToBigInt, bytesToHex, type Hex, hexToBytes, numberToBytes } from "
 import type { Kind, ParsedReceipt, Transfer } from "../ingest/reconstruct.ts";
 import { db } from "./connection.ts";
 
-/**
- * What the chain said and what was learned about it: the transfers of every receipt
- * that touched a tracked wallet, the tokens' decimals and names, and whether an address
- * is a contract or an account. A rebuild reads all of this and nothing from the chain.
- */
+/** What the chain said and what was learned about it: the transfers of every receipt that touched a tracked
+ *  wallet, token decimals and names, and whether an address is a contract. A rebuild reads only this. */
 const stmt = {
   insertReceipt: db.query("INSERT OR IGNORE INTO receipts (tx, block, ts) VALUES (?, ?, ?)"),
   /** A row stored before its timestamp was known takes the first one offered. */
@@ -85,11 +82,8 @@ export function getReceipt(tx: string): StoredReceipt | undefined {
 
 export const transfersOf = (receiptId: number): Transfer[] => stmt.transfersOf.all(receiptId).map(rowToTransfer);
 
-/**
- * Stored receipts, oldest first, without their transfers — a rebuild loads those one at a
- * time. Taken after an id and in a bounded run, so a replay can be spread over several
- * passes: inside a Durable Object the whole tape at once is more than one alarm has.
- */
+/** Stored receipts, oldest first, without their transfers. Taken after an id and bounded so a replay can be
+ *  spread over passes: inside a Durable Object the whole tape at once is more than one alarm has. */
 export const allReceipts = (after = 0, limit = Number.MAX_SAFE_INTEGER) =>
   stmt.allReceipts.all(after, limit).map((r) => ({ id: r.id, tx: bytesToHex(r.tx) as Hex, block: r.block, ts: r.ts }));
 

@@ -9,11 +9,8 @@ import { useTape, useUi } from "./store.ts";
 import { denseCell as cell, head, mid, roomy, tone, wide } from "./table.tsx";
 import type { Window } from "./types.ts";
 
-/**
- * Log scale, so $500 and $50k are both visible instead of one pixel and a full bar.
- * Pixels, not percent: the column has to size itself from the widest bar, and a
- * percentage inside an auto-layout table cell has nothing to resolve against.
- */
+// Log scale, so $500 and $50k are both visible. Pixels, not percent: a percentage inside an
+// auto-layout table cell has nothing to resolve against.
 const BAR_MAX = 220;
 const barWidth = (value: number) =>
   `${Math.round((Math.min(100, Math.max(3, (Math.log10(value) - 1.5) * 26)) / 100) * BAR_MAX)}px`;
@@ -64,19 +61,14 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
           ) : (
             <>
               {fill.priced === "estimate" ? "~" : ""}
-              {/* A phone spends every pixel of this column on the token and the trader
-                  beside it: $12.3k here, the cents in the card a tap away. */}
               <span className="sm:hidden">{usdCompact(fill.usd)}</span>
               <span className="hidden sm:inline">{usd(fill.usd)}</span>
             </>
           )}
         </td>
         <td className={`${num} ${mid} text-dim font-mono`}>{fill.price === null ? "" : price(fill.price)}</td>
-        {/* The trade against the price now: the one number a reader of a tape wants next to a
-            price. Both numbers are spelled out in the title, because a percentage on its own
-            leaves the reader to work out which way round it was taken — and on a fill priced
-            from the feed they are the same number until the mark moves, so the title says the
-            feed rather than claiming a price the wallet was never quoted. */}
+        {/* On a fill priced from the feed the two are the same number until the mark moves, so
+            the title says the feed rather than a price the wallet was never quoted. */}
         <td
           className={`${num} ${mid} font-mono ${tone(vsNow)}`}
           title={
@@ -161,8 +153,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
             {fill.tx.slice(2, 8)}
           </a>
         </td>
-        {/* The same number as the usd cell, drawn — a tape is scanned, not read. Capped so
-          it stays a gauge instead of taking every pixel the table has spare. */}
+        {/* The same number as the usd cell, drawn: a tape is scanned, not read. */}
         <td className={`${cell} ${wide} pr-3`}>
           {fill.usd !== null && (
             <span
@@ -187,12 +178,9 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
 });
 
 /**
- * The tape holds the last four hundred fills. With three hundred wallets on it that is
- * about half an hour, while the window above says a day, so the end of the screen is not
- * the end of the window: this asks for the page before the oldest row and puts it under.
- *
- * Mounted with the window and the filters as its key, so a change to any of them brings a
- * fresh one rather than a button still reporting the end of a tape nobody is reading now.
+ * Four hundred fills is about half an hour, while the window above says a day: this asks for
+ * the page before the oldest row. Keyed on the window and the filters, so either brings a fresh
+ * one rather than a button still reporting the end of a tape nobody is reading now.
  */
 function Older({ window: window_, stocks, dust }: { window: Window; stocks: boolean; dust: boolean }) {
   const [state, setState] = useState<"idle" | "loading" | "end">("idle");
@@ -232,9 +220,8 @@ export function Tape({ explorer, slug }: Links) {
   const ids = useTape(
     useShallow((state) => {
       if (!filter) return state.ids;
-      // A filter that names a token exactly means that token: "AI" is the token, not
-      // every trader with those two letters somewhere in their handle, which is most of
-      // them. Anything else stays a loose match on either.
+      // A filter that names a token exactly means that token: "AI" is the token, not every
+      // trader with those two letters in their handle. Anything else stays a loose match.
       const token = state.ids.some((id) => state.byId[id]?.symbol?.toLowerCase() === filter);
       return state.ids.filter((id) => {
         const fill = state.byId[id];
@@ -305,8 +292,7 @@ export function Tape({ explorer, slug }: Links) {
           <Row key={id} id={id} explorer={explorer} slug={slug} />
         ))}
       </tbody>
-      {/* Outside the filter: it narrows what is on the screen, and older pages give it more
-          to narrow. A filter that matches nothing loaded yet is exactly when this is wanted. */}
+      {/* Outside the filter: a filter matching nothing loaded yet is when this is most wanted. */}
       <tfoot>
         <Older key={`${page.window}|${page.stocks}|${page.dust}`} {...page} />
       </tfoot>

@@ -1,12 +1,6 @@
-/**
- * The whole schema, and the whole story: there are no migrations. A database that does
- * not match is deleted and re-synced from the chain, which is what the receipts are for.
- *
- * Receipts are kept because the pricing rules keep changing: a rebuild replays every
- * fill from the database without touching the chain again. What is kept is what the
- * reconstruction reads — the ERC-20 transfers, one row each, addresses and amounts as
- * bytes — not the node's JSON, which is fifty times larger and mostly other events.
- */
+/** The whole schema; there are no migrations, and a database that does not match is deleted and re-synced.
+ *  Receipts keep only what the reconstruction reads — the ERC-20 transfers, addresses and amounts as bytes —
+ *  so a rebuild replays every fill without touching the chain again. */
 export const SCHEMA = `
   /** One row per transaction; ts is the block timestamp, NULL until it is known. */
   CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY, tx BLOB NOT NULL UNIQUE, block INTEGER NOT NULL, ts INTEGER);

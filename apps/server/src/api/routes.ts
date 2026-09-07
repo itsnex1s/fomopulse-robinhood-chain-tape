@@ -10,9 +10,8 @@ import { handleOf, toFill } from "./fills.ts";
 import type { Overview, Status } from "./types.ts";
 
 /**
- * Every open tab polls `/api/status` and reloads the tape on each window change; the
- * answers barely change between polls, so they are computed at most once per `ttlMs`
- * per distinct query and the rest is served from memory.
+ * Every open tab polls the same handful of queries, so each answer is computed at most once
+ * per `ttlMs` per distinct query and the rest is served from memory.
  */
 function memo<T>(ttlMs: number, compute: (key: string) => T) {
   const cache = new Map<string, { at: number; value: T }>();
@@ -80,8 +79,7 @@ const status = memo(5_000, (window): Status => {
     // The client builds explorer and DexScreener links from these, so the chain file stays the one source.
     explorer: chainConfig.explorer,
     dexscreener_slug: chainConfig.dexscreenerSlug,
-    // Every tab used to poll this and /api/overview on two timers a couple of seconds
-    // apart, which is two round trips to the object for one bar. One answer carries both.
+    // Carried here so a tab polls one endpoint instead of two for one bar.
     overview: overviewFor(window),
     // Whose numbers are fomo's, and whether they are still arriving.
     leaderboard: leaderboardState(),
@@ -107,9 +105,8 @@ const tapeFor = memo(1_000, (key) => {
 });
 
 /**
- * The two heaviest reads: the ranking walks every wallet, the bags group the tape by
- * token and join it, plus one holders query each. Every open tab polls both, so they are
- * cached like the tape — a second request inside the TTL never touches SQLite.
+ * The two heaviest reads: the ranking walks every wallet, the bags group the tape by token
+ * and join it, plus one holders query each. Both are polled by every open tab.
  */
 const tradersFor = memo(10_000, (key) => {
   const [window, limitText] = key.split("|");

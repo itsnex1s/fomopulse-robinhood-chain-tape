@@ -2,20 +2,11 @@ import type { Bag } from "../api/types.ts";
 import { db } from "./connection.ts";
 import type { StoredQuote } from "./prices.ts";
 
-/**
- * What the tracked traders are sitting in, by token: fomo's numbers over the three
- * positions it publishes per trader, the feed's live quote, what the token did on this
- * tape inside the window, and how the bag has moved since the window opened. Names and
- * quotes for chains this tape does not follow sit beside the bag; every refresh takes
- * a snapshot, so the screen can say whether traders are piling in or leaving.
- */
+/** What the tracked traders are sitting in, by token. A token off the tracked chain keeps its name and quote
+ *  in bag_tokens rather than in tokens/prices, and every refresh writes a bag_history snapshot so the screen
+ *  can say whether traders are piling in or leaving over a window. */
 const stmt = {
-  /**
-   * One row per token: how many tracked traders hold it and what it is worth to them
-   * (fomo's numbers), the feed's live quote for it, what it did on this tape inside the
-   * window (ours), and how the bag has moved since the window opened (from bag_history).
-   * Parameters: the chain we follow, the start of the window, how many rows.
-   */
+  /** Parameters: the chain we follow, the start of the window, how many rows. */
   bags: db.query<BagRow, [number, number, number]>(
     `SELECT h.token AS token, h.network AS network, MAX(h.image_url) AS image_url,
             COALESCE(t.symbol, b.symbol) AS symbol, COALESCE(t.name, b.name) AS name,
@@ -73,11 +64,8 @@ const stmt = {
        change24 = excluded.change24, pair_created_at = COALESCE(excluded.pair_created_at, bag_tokens.pair_created_at),
        pair_address = COALESCE(excluded.pair_address, bag_tokens.pair_address), quoted_at = excluded.quoted_at`,
   ),
-  /**
-   * Held tokens by chain, each with the age of its quote — the feed's for the tracked
-   * chain, the one kept beside the bag elsewhere — so the stalest can go first.
-   * Parameter: the chain we follow.
-   */
+  /** Held tokens by chain with the age of each quote — the feed's on the tracked chain, the one kept beside
+   *  the bag elsewhere — so the caller can take the stalest first. Parameter: the chain we follow. */
   heldTokens: db.query<{ token: string; network: number; quoted_at: number | null }, [number]>(
     `SELECT h.token AS token, h.network AS network, COALESCE(MAX(p.updated_at), MAX(b.quoted_at)) AS quoted_at
        FROM holdings h
@@ -104,11 +92,8 @@ const stmt = {
   holdersOf: db.query<{ handle: string; value: number; pnl: number | null }, [string, number]>(
     "SELECT handle, value, pnl FROM holdings WHERE token = ? AND network = ? ORDER BY value DESC LIMIT 8",
   ),
-  /**
-   * Tokens a tracked wallet is still long on this tape, with the age of their quote, for
-   * the feed to mark when there are no holdings to read a position off. The caller sorts
-   * the stalest first and keeps thirty, so nothing here is ordered or bounded twice.
-   */
+  /** Tokens a tracked wallet is still long on this tape, with the age of their quote, for when there are no
+   *  holdings to read a position off. Neither ordered nor bounded: the caller does both. */
   tapeTokens: db.query<{ token: string; quoted_at: number | null }, []>(
     `WITH pos AS (
        SELECT token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
@@ -118,19 +103,9 @@ const stmt = {
        FROM (SELECT DISTINCT token FROM pos WHERE amount > 0) x
        LEFT JOIN prices p ON p.token = x.token`,
   ),
-  /**
-   * Positions read off our own tape: net tokens per tracked wallet, dusting left out,
-   * and only the wallets still long — a sale of tokens bought before the tape began is
-   * a negative position, and netting it against the others hid what they hold. `holders`
-   * counts those wallets, `amount` is what they hold together, and `value`/`top_value`
-   * mark it at the feed's price — null until the feed has quoted it. `pnl` is value less
-   * the cost of what is held, at the average price paid across the buys that carry a
-   * dollar amount; an approximation (no lot accounting), but measured, not published.
-   * A token nobody is long any more still shows while it traded inside the window. The
-   * window only bounds the flow columns; the position itself is over the whole tape.
-   * Each aggregate is one grouped pass over the fills, joined by token, rather than a
-   * subselect per token per row. Parameters: the start of the window, how many rows.
-   */
+  /** Positions read off our own tape, counting only wallets still long: a sale of tokens bought before the
+   *  tape began nets negative and would hide what the others hold. `pnl` is average cost across the priced
+   *  buys, no lot accounting. The window bounds the flow columns only. Parameters: window start, row limit. */
   tapeBags: db.query<BagRow, [number, number]>(
     `WITH pos AS (
        SELECT wallet, token,
@@ -206,20 +181,14 @@ const stmt = {
   ),
 };
 
-/**
- * What the bags queries return: the API's bag, less what the server adds on top — which
- * source measured it, whether the token is a stock, and the holders with their avatars.
- * `first_buyer` is still the wallet here; the server turns it into a handle.
- */
+/** What the bags queries return: the API's bag, less what the server adds on top. `first_buyer` is still the
+ *  wallet here; the server turns it into a handle. */
 export type BagRow = Omit<Bag, "source" | "is_stock" | "holders_list">;
 
 export const bags = (chainId: number, sinceTs: number, limit: number): BagRow[] =>
   stmt.bags.all(chainId, sinceTs, limit);
 export const holdersOf = (token: string, network: number) => stmt.holdersOf.all(token, network);
-/**
- * Tokens the tracked wallets hold or moved lately, read off the tape instead of fomo:
- * the position columns come from net fills, the flow columns from the window.
- */
+/** Bags read off the tape instead of fomo: position columns from net fills, flow columns from the window. */
 export const tapeBags = (sinceTs: number, limit: number): BagRow[] => stmt.tapeBags.all(sinceTs, limit);
 export const tapeHolders = (token: string, limit = 8) => stmt.tapeHolders.all(token, limit);
 export const tapeTokens = () => stmt.tapeTokens.all();

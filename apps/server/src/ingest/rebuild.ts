@@ -17,14 +17,9 @@ import { isStock } from "../stocks.ts";
 import { reconstruct } from "./reconstruct.ts";
 
 /**
- * The rules a stored fill was written under. Raise it when reconstruction or pricing
- * changes what an already-stored row would have been, and every deployment replays its
- * receipts once on the next tick instead of carrying the mistake until the rows age out.
- *
- * 1 — the liquidity floor under a quote, and airdrops read as handouts rather than buys.
- * 2 — a handout is its own verdict, and a paid trade in the token no longer pardons it.
- * 3 — a spray that sends to one wallet per transaction is a handout too.
- * 4 — a fill dusted for having no price is re-judged once it has one.
+ * The rules a stored fill was written under. Raise it when reconstruction or pricing changes what
+ * an already-stored row would have been, and every deployment replays its receipts once on the
+ * next tick instead of carrying the mistake until the rows age out.
  */
 export const RULES = 4;
 const RULES_KEY = "rules";
@@ -47,31 +42,23 @@ const fillTs = db.query<{ ts: number | null }, [string, number]>(
   "SELECT COALESCE((SELECT MIN(ts) FROM fills WHERE tx = ?1), (SELECT MIN(ts) FROM fills WHERE block = ?2)) AS ts",
 );
 /**
- * A fill priced off a quote that has since been dropped for being too shallow. Its token
- * has no price row at all now, so there is nothing to reprice it from — it goes back to
- * unpriced, which the tape shows as a dash. Reaches the fills a replay cannot: receipts
- * are kept for a fortnight and fills for a quarter, so the older ones are only ever this.
+ * A fill priced off a quote since dropped for being too shallow: its token has no price row at
+ * all now, so it goes back to unpriced. Reaches fills a replay cannot — receipts are kept for a
+ * fortnight and fills for a quarter, so the older ones are only ever repaired here.
  */
 const unprice = db.query(
   "UPDATE fills SET usd = NULL, price = NULL, priced = 'unpriced' WHERE priced = 'estimate' AND token NOT IN (SELECT token FROM prices)",
 );
 /**
- * One receipt's fills, cleared before it is replayed — including the ones the new rules
- * no longer produce at all. By transaction rather than by range: receipts are kept for a
- * fortnight and fills for a quarter, and a range would throw away the older ten weeks of
- * the tape to rewrite the newest two. Indexed, being the leading half of the fills key.
+ * One receipt's fills, cleared before it is replayed. By transaction rather than by range: a range
+ * would throw away the ten weeks of tape whose receipts have already been pruned.
  */
 const dropFillsOf = db.query("DELETE FROM fills WHERE tx = ?");
 
 /**
- * Replay every stored receipt through the current reconstruction and rewrite `fills`.
- * The receipts exist for exactly this: the pricing and dusting rules keep changing, and a
- * replay costs no chain calls — which is what lets the object run one on itself after a
- * deploy, rather than carrying a mistake until the rows age out.
- *
- * `dateOf` fills in a receipt whose timestamp never arrived and whose block left no fill
- * behind. On the object there is nobody to ask inside a pass, so those receipts are
- * counted and skipped; the script passes a reader of the chain and keeps them.
+ * Replay every stored receipt through the current reconstruction and rewrite `fills`. Costs no
+ * chain calls, which is what lets the object run one on itself after a deploy. `dateOf` fills in a
+ * receipt whose timestamp never arrived; without it, such receipts are counted and skipped.
  */
 export async function rebuildFills(
   dateOf?: (tx: string, block: number) => Promise<number>,
@@ -85,8 +72,7 @@ export async function rebuildFills(
   const before = db.query<{ n: number }, []>("SELECT COUNT(*) n FROM fills").get()!.n;
 
   // The quotes first, once, before the first receipt is replayed: a price from a pool with
-  // nothing in it is not a price, and an estimate made from one is the whole reason a
-  // rebuild is being run.
+  // nothing in it is not a price, and an estimate made from one is what a rebuild is for.
   const thin = after === 0 ? dropThinPrices() : 0;
   const unpriced = after === 0 ? unprice.run().changes : 0;
 
@@ -129,10 +115,9 @@ export async function rebuildFills(
 }
 
 /**
- * Receipts replayed in one go. A whole tape at once is a second or two of unbroken CPU,
- * which is fine in a script and is not what a Durable Object's alarm is for: the replay
- * picks up where it left off on the next pass, and each receipt is corrected whole, so
- * being halfway through leaves the tape consistent rather than half-empty.
+ * Receipts replayed in one go. A whole tape at once is a second or two of unbroken CPU, which is
+ * not what a Durable Object's alarm is for; each receipt is corrected whole, so being halfway
+ * through leaves the tape consistent rather than half-empty.
  */
 const CHUNK = 2_000;
 /** Where a replay spread over several passes has got to. */

@@ -10,35 +10,22 @@ const TRANSFER = parseAbiItem("event Transfer(address indexed from, address inde
 
 /** Chunk size for catch-up; 2 000 blocks is about 3 minutes of this chain. */
 const CHUNK = 2_000n;
-/**
- * What the chain's own fallback will take. Measured 2026-09-05 with the real wallet filter:
- * OrdoFi answered 500 blocks in 2.2 s and gave up on 2 000 — viem's ten-second timeout with
- * four retries behind it, which is a whole pass spent on a range that was never coming back.
- * Asking that endpoint for what it can serve beats asking for what it cannot and waiting.
- */
+/** What the chain's own fallback will take: it serves 500 blocks in about 2 s and times out on 2 000. */
 const WIDE_CHUNK = 500n;
 /** Below this a catch-up is more round trips than the narrower range is worth. */
 const MIN_CHUNK = 125n;
 /**
- * Providers cap the `eth_getLogs` range — Alchemy's free tier allows ten blocks, one
- * second of this chain, which would turn one chunk into two hundred requests. The
- * first rejection of any kind moves the scan to the chain's own endpoint, which has no
- * cap; only if that one refuses too does the chunk shrink to the cap it states.
+ * Providers cap the `eth_getLogs` range — Alchemy's free tier allows ten blocks, one second of
+ * this chain. The first rejection of any kind moves the scan to the chain's own endpoint, which
+ * has no cap; only if that one refuses too does the chunk shrink to the cap it states.
  */
 let chunk = CHUNK;
 /**
- * Which endpoint the scan is on, as a flag rather than the client itself. The clients are
- * rebuilt when the settings arrive, and a module that captured one at import time keeps
- * the endpoint the app had before it was configured: in a Worker there is no environment
- * to read at import, so that is the chain's own endpoint, which answers a Cloudflare
- * address with 429 — the key was there the whole time and the scan never used it.
+ * Which endpoint the scan is on, as a flag rather than the client itself: the clients are rebuilt
+ * when the settings arrive, and in a Worker there is no environment to read at import time.
  */
 let onWide = false;
-/**
- * How wide the chunk may grow back. A range narrowed because the endpoint was slow for a
- * minute should not stay narrow for the life of the isolate — that is eight times the round
- * trips on every later catch-up — but it must not grow past a cap the provider has stated.
- */
+/** How wide the chunk may grow back after a narrowing; never past a cap the provider has stated. */
 let ceiling = CHUNK;
 
 function rangeCapOf(error: unknown): bigint | undefined {
@@ -54,12 +41,8 @@ const timedOut = (error: unknown): boolean =>
 
 const half = (of: bigint): bigint => (of / 2n < MIN_CHUNK ? MIN_CHUNK : of / 2n);
 /**
- * How small a stated cap may be and still be worth meeting. Meeting one keeps the scan
- * on the endpoint that stated it, which is worth something — but Alchemy's free tier
- * allows ten blocks, and meeting that turns one chunk into two hundred requests and a
- * six-thousand-block sweep into six hundred, where the endpoint with no cap answers the
- * same range in one. Four times the requests to keep a key is a trade; two hundred is
- * not.
+ * How small a stated cap may be and still be worth meeting: meeting one keeps the scan on the
+ * endpoint that stated it, but a ten-block cap turns one chunk into two hundred requests.
  */
 const WORTH_MEETING = CHUNK / 4n;
 /** Space between catch-up chunks on the public RPC, which rejects requests that come faster. */
@@ -77,10 +60,9 @@ export const scanChunk = (): bigint => chunk;
 const short = (error: unknown): string => (error instanceof Error ? error.message : String(error)).split("\n")[0]!;
 
 /**
- * Two filters, because a tracked wallet is either the receiver of a token (a buy)
- * or its sender (a sell), and one filter cannot express that as an OR. Filtering by
- * token contract is impossible: fomo routes through relay.link, so the token arrives
- * from whichever pool or router the route picked.
+ * Two filters, because a tracked wallet is either the receiver of a token (a buy) or its sender
+ * (a sell), and one filter cannot express that as an OR. Filtering by token contract is
+ * impossible: fomo routes through relay.link, so the token comes from whichever pool it picked.
  */
 const FILTERS = [{ to: WALLET_LIST }, { from: WALLET_LIST }];
 const TOPICS: (Hex | Hex[] | null)[][] = [
@@ -89,9 +71,8 @@ const TOPICS: (Hex | Hex[] | null)[][] = [
 ];
 
 /**
- * Reads the range in chunks and stores its fills. Each chunk is fully processed before
- * the cursor moves past it, so a crash never skips a transaction. Returns how many
- * fills were new.
+ * Reads the range in chunks and stores its fills, returning how many were new. Each chunk is
+ * fully processed before the cursor moves past it, so a crash never skips a transaction.
  */
 export async function catchUp(from: bigint, to: bigint, emit: (fills: StoredFill[]) => void): Promise<number> {
   let fresh = 0;
@@ -105,10 +86,8 @@ export async function catchUp(from: bigint, to: bigint, emit: (fills: StoredFill
         FILTERS.map((args) => scan.getLogs({ event: TRANSFER, args, fromBlock: start, toBlock: end })),
       );
     } catch (error) {
-      // A cap the provider states is worth more than another endpoint while meeting it
-      // is cheap: scanning in the steps it allows keeps the key, and with it the rate
-      // limit a key is for. Ten blocks is not cheap, and on the wide endpoint there is
-      // nowhere further to go, so there any cap is met.
+      // A stated cap is worth meeting while meeting it is cheap: it keeps the key, and with it
+      // the rate limit a key is for. On the wide endpoint there is nowhere else to go, so any cap is met.
       const cap = rangeCapOf(error);
       if (cap !== undefined && cap < chunk && (onWide || cap >= WORTH_MEETING)) {
         log.info(`the RPC caps eth_getLogs at ${cap} blocks; catching up in steps of that`);
@@ -133,8 +112,7 @@ export async function catchUp(from: bigint, to: bigint, emit: (fills: StoredFill
       }
       throw error;
     }
-    // Back towards the ceiling after a narrowing: the endpoint that timed out a minute ago
-    // is usually fine now, and the chunk should not stay where its worst minute put it.
+    // Back towards the ceiling: an endpoint that timed out a minute ago is usually fine now.
     if (chunk < ceiling) chunk = chunk * 2n > ceiling ? ceiling : chunk * 2n;
     const logs = batches.flat() as unknown as IngestLog[];
     if (logs.length > 0) fresh += (await onLogs(logs, emit, 0)).length;
@@ -146,10 +124,9 @@ export async function catchUp(from: bigint, to: bigint, emit: (fills: StoredFill
 }
 
 /**
- * Blocks a transaction was given up on, read again one at a time. A few per sweep: the
- * endpoint that could not serve the receipt a minute ago is usually fine now, and a block
- * that reads clean stops being owed. One that still refuses stays on the list, so the
- * resume cursor keeps naming a block everything below which really is stored.
+ * Blocks a transaction was given up on, read again one at a time. A block that reads clean stops
+ * being owed; one that still refuses stays on the list, so the resume cursor keeps naming a block
+ * everything below which really is stored.
  */
 export async function mend(emit: (fills: StoredFill[]) => void, limit = 5): Promise<number> {
   let mended = 0;
@@ -182,9 +159,8 @@ interface Notification {
 }
 
 /**
- * How a client socket is opened. Bun has the constructor a browser has; a Worker has none
- * and asks the provider for an upgrade instead, so that platform swaps this out before it
- * subscribes.
+ * How a client socket is opened. Bun has the constructor a browser has; a Worker has none and asks
+ * the provider for an upgrade instead, so that platform swaps this out before it subscribes.
  */
 export let openSocket: (url: string) => WebSocket = (url) => new WebSocket(url);
 export const openSocketWith = (open: typeof openSocket): void => {
@@ -199,10 +175,9 @@ interface WatchOptions {
 }
 
 /**
- * Live subscription over a raw websocket: two `eth_subscribe` calls, and a heartbeat
- * that asks the socket for the block number every 30 s. A socket that stops answering
- * is declared down, which a provider-side reconnect would otherwise hide. Returns a
- * function that stops it; `onDown` fires once, for any other end of the socket.
+ * Live subscription over a raw websocket: two `eth_subscribe` calls, and a heartbeat that asks the
+ * socket for the block number every 30 s — a socket that stops answering is declared down, which a
+ * provider-side reconnect would otherwise hide. Returns a stop function; `onDown` fires once.
  */
 export function watch(
   wsUrl: string,

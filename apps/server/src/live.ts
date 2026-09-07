@@ -24,9 +24,8 @@ export async function resume(emit: Emit): Promise<number> {
 }
 
 /**
- * No websocket endpoint: keep the tape moving by re-running the catch-up on a timer.
- * A demo mode — one poll costs one batched request and the delay is the interval,
- * where a subscription would cost one block.
+ * No websocket endpoint: keep the tape moving by re-running the catch-up on a timer. One poll
+ * costs one batched request and the delay is the interval, where a subscription costs a block.
  */
 export async function poll(emit: Emit, seconds: number): Promise<never> {
   log.info(`RPC_WS_URL is not set; polling every ${seconds}s instead (see .env.example)`);
@@ -37,29 +36,22 @@ export async function poll(emit: Emit, seconds: number): Promise<never> {
 }
 
 /**
- * Live mode. A dropped socket loses the blocks it was down for, so every reconnect
- * replays them through the catch-up path; the fills primary key drops the overlap.
- *
- * The socket can also die quietly: a provider can answer the heartbeat and still have
- * forgotten the subscriptions, and then nothing about the connection looks wrong. The
- * sweep is what notices. It already re-reads the recent past through the catch-up path,
- * and `insertFills` returns only rows that were not stored before, so a fill it finds in
- * a block past everything the socket ever handed us is proof the subscription is gone.
- * A gap comparison against the resume cursor cannot do this job: the sweep advances that
- * cursor itself, so the gap it measures never opens.
+ * Live mode. A dropped socket loses the blocks it was down for, so every reconnect replays
+ * them through the catch-up path; the fills primary key drops the overlap. A provider can
+ * also answer the heartbeat with its subscriptions forgotten, and only the sweep finding a
+ * fill past everything the socket delivered shows it — the sweep advances the resume cursor
+ * itself, so a gap measured against that never opens.
  */
 export function follow(wsUrl: string, emit: Emit): void {
   let backoff = 1_000;
   let stop = () => {};
   /**
-   * How far the socket has accounted for the chain: the head when it subscribed, then
-   * every log it delivered. A fill below this mark is a log dropped in passing, which is
-   * what the sweep is for; a fill above it is a subscription that stopped.
+   * How far the socket has accounted for the chain: the head when it subscribed, then every
+   * log it delivered. A fill below this mark is a log dropped in passing, which is what the
+   * sweep is for; a fill above it is a subscription that stopped.
    */
   let delivered = 0n;
-  // The chain head as the socket last reported it. The watchdog and the sweep used to
-  // ask for it again over HTTP: a second question every thirty seconds that the
-  // heartbeat had just had answered.
+  /** The chain head as the socket last reported it, so the sweep asks no HTTP question. */
   let seenHead = { block: 0n, at: 0 };
   const tip = (): Promise<bigint> =>
     Date.now() - seenHead.at < HEAD_FRESH_MS ? Promise.resolve(seenHead.block) : head();

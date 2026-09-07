@@ -12,12 +12,7 @@ const clockFormat = new Intl.DateTimeFormat("en-US", {
   second: "2-digit",
 });
 
-/**
- * A fill under half a cent is still a fill: rounded to cents it reads "$0", which says the
- * trade was for nothing rather than for a fraction of a cent. Measured 2026-09-06, a
- * settlement batch left a wallet with 0.0000018 MSFT — nine hundredths of a cent — and the
- * tape showed it as "~$0" beside a four-figure price.
- */
+/** A fill under half a cent is still a fill: rounded to cents it reads "$0", which says nothing. */
 export const usd = (value: number) => (value > 0 && value < 0.005 ? "<$0.01" : `$${usdFormat.format(value)}`);
 export const usdCompact = (value: number) => `$${compactFormat.format(value)}`;
 /** PnL always carries its sign; a plus is information, not decoration. */
@@ -41,11 +36,8 @@ export const pct = (value: number) =>
   `${value < 0 ? "−" : "+"}${Math.abs(value) >= 100 ? Math.round(Math.abs(value)) : Math.abs(value).toFixed(1)}%`;
 export const compact = (value: number) => compactFormat.format(value);
 /**
- * A quantity, which on this tape runs from four million tokens down to a millionth of a
- * share: compact above one, significant digits below it. `compact` rounds everything under
- * 0.05 to "0", and a tokenised stock is bought by the dollar rather than by the share —
- * measured 2026-09-06, 276 of the window's thousand rows were stock fills and every one of
- * them was a fraction of a share, so every one of them read "0".
+ * Compact above one, significant digits below it: `compact` rounds everything under 0.05 to
+ * "0", and a tokenised stock is bought by the dollar rather than by the share.
  */
 export const amount = (value: number) => (value >= 1 ? compactFormat.format(value) : smallFormat.format(value));
 export const price = (value: number) => `$${priceFormat.format(value)}`;

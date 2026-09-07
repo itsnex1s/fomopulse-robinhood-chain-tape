@@ -16,8 +16,11 @@ than five lines almost always already exists under one of those names.
 The same TypeScript runs in two places, so a change to `apps/server/src` lands on the self-hosted
 Bun process and on the Worker at once. Check both paths before calling a change done.
 
-Comments carry measured facts — a block time, a rate limit, the shape of an endpoint's refusal, the
-date something was observed failing. Keep that register: say what was measured, not what is planned.
+Comment only what the code cannot say: an external constraint, a unit, an invariant, a rule that
+looks wrong until you know why. Three lines is the ceiling. Anything longer is a commit message —
+put it in the commit, where git keeps it and no one pays to read it again. Never write history into
+a source file: what the code used to do, what was measured on which date, why the previous approach
+was dropped. `git log` and `git blame` already hold all of it.
 
 Ship a verifiable check with non-trivial logic: a `bun test` case, a `--once` run, a query. `bun run
 check` is lint, typecheck, test and build in one.

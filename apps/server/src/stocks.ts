@@ -19,11 +19,8 @@ export interface Stock {
 /** "Costco • Robinhood Token" is the token; "Costco" is what a reader wants next to COST. */
 const plainName = (name: string) => name.replace(/\s*[•·–-]\s*Robinhood Token\s*$/i, "").trim();
 
-/**
- * Robinhood's own registry of tokenised stocks (`GET https://api.robinhood.com/rhj/assets`),
- * shipped as a file because the list changes on corporate-action timescales and the tape
- * needs the flag on every row. Refresh it by saving that response over the file.
- */
+/** Robinhood's own registry of tokenised stocks (`GET https://api.robinhood.com/rhj/assets`), shipped as a
+ *  file because the list changes on corporate-action timescales. Refresh it by saving that response over it. */
 const STOCKS = new Map<Address, Stock>(
   (registry as unknown as { assets: Asset[] }).assets.flatMap((asset) =>
     asset.deployments

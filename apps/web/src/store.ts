@@ -2,8 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Fill, Window } from "./types.ts";
 
-/** The tape is capped like the original: 400 rows, oldest dropped — until a reader asks
- *  for older ones, and then it holds what they have loaded. */
+/** Capped like the original: 400 rows, oldest dropped, until a reader loads older ones. */
 export const MAX_ROWS = 400;
 
 const keyOf = (fill: Fill) => `${fill.tx}:${fill.id}`;
@@ -92,9 +91,8 @@ export const useTape = create<TapeState>((set) => ({
     if (wanted.length === 0) return;
     set((state) => {
       if (!state.hold) return merge(state, wanted);
-      // A row that is already on the screen came back repriced: that is a correction, not
-      // an arrival, so it updates in place rather than waiting behind the "new" button and
-      // counting itself as one more fill. A fill still queued is replaced where it stands.
+      // A row already on the screen came back repriced: a correction, not an arrival, so it
+      // updates in place rather than waiting behind the "new" button and counting as a fill.
       const known = wanted.filter((f) => state.byId[keyOf(f)]);
       const queued = new Map(state.pending.map((f) => [keyOf(f), f]));
       for (const fill of wanted) if (!state.byId[keyOf(fill)]) queued.set(keyOf(fill), fill);

@@ -1,7 +1,6 @@
 /**
- * Re-render the icons and the share card from `apps/web/og/*.html`.
- * Headless Chrome is the renderer because the card is a normal page: same fonts, same
- * palette, same table as the app, and no image editor in the loop.
+ * Re-render the icons and the share card from `apps/web/og/*.html`. Headless Chrome is the
+ * renderer because the card is a normal page: same fonts, same palette, same table as the app.
  */
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,12 +36,8 @@ const shots: [page: string, file: string, width: number, height: number, scale: 
 // flags as navigation orders instead.
 const profile = `${tmpdir()}/fomopulse-shots`.replace(/\\/g, "/");
 
-/**
- * The wallet count on the card comes from the roster the card is about. It read 236 while
- * the roster held 294 — a number kept by hand in the markup is wrong again the next time
- * `roster.ts` runs, and nothing about the card says so. The file on disk keeps the last
- * rendered count, so opening it in a browser still shows a card.
- */
+// The wallet count on the card comes from the roster the card is about, since a number kept
+// by hand goes stale the next time `roster.ts` runs. The file on disk keeps the last count.
 const roster = (JSON.parse(await Bun.file(`${og}../../../config/wallets.json`).text()) as unknown[]).length;
 const staged = `${tmpdir()}/fomopulse-og.html`.replace(/\\/g, "/");
 await Bun.write(
@@ -51,9 +46,8 @@ await Bun.write(
 );
 
 for (const [page, file, width, height, scale] of shots) {
-  // The old file goes first, so `exists` below is a real check. Chrome fails often enough
-  // for one reason or another — a stale profile lock is the usual one — and leaving the
-  // last render in place means a card that says whatever it said before, silently.
+  // The old file goes first, so `exists` below is a real check: Chrome fails often enough —
+  // a stale profile lock, usually — and a left-over render says whatever it said before.
   await Bun.file(`${out}${file}`)
     .delete()
     .catch(() => {});

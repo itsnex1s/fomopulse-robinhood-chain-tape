@@ -8,12 +8,9 @@ export { parse, TRANSFER_TOPIC, transfers } from "./parse.ts";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 /**
- * Why a fill is off the tape, kept on the fill itself. A trade is `0`. `1` is dusting by
- * value — nobody paid for it and it is worth cents — and one real trade in the token
- * pardons the token's whole dusty history. `2` is a handout by shape, which nothing
- * pardons: what one transaction was is not changed by what other transactions were.
- * Measured 2026-09-06: fomocat is a real token with a real pool, and fifteen paid buys in
- * it brought back two hundred and sixty-one rows of a spray to seventy-three wallets.
+ * Why a fill is off the tape. A trade is `0`. `1` is dusting by value — nobody paid for it and
+ * it is worth cents — and one real trade in the token pardons its whole dusty history. `2` is a
+ * handout by shape, which nothing pardons: one transaction is not changed by what others were.
  */
 export const TRADE = 0;
 export const DUSTED = 1;
@@ -70,17 +67,15 @@ interface Leg {
 const scale = (value: bigint, decimals: number) => Number(value) / 10 ** decimals;
 
 /**
- * Below this share of a token's largest transfer in the transaction, an account's
- * balance change is a fee, not a trade: launchpad hooks pay a fraction of a percent of
- * every swap to a collector wallet, which would otherwise look like a trader.
+ * Below this share of a token's largest transfer in the transaction, a balance change is a fee,
+ * not a trade: launchpad hooks pay a fraction of a percent of every swap to a collector wallet.
  */
 const FEE_RATIO = 5n; // percent
 
 /**
- * Net movement of every non-quote token per address, fee-sized changes dropped —
- * except for the tracked wallets, whose every change is a fill, however small an
- * airdrop it is. Relay hands a token through its own addresses, which nets to zero
- * and disappears.
+ * Net movement of every non-quote token per address, fee-sized changes dropped — except for the
+ * tracked wallets, whose every change is a fill however small. Relay hands a token through its
+ * own addresses, which nets to zero and disappears.
  */
 function netFlows(
   all: Transfer[],
@@ -115,9 +110,8 @@ function netFlows(
 const NOBODY: ReadonlySet<Address> = new Set();
 
 /**
- * Addresses whose balance of a non-quote token changed by more than a fee: the
- * traders, and the pools they traded against. Their code kind tells the two apart, so
- * this is what the caller has to look up before `reconstruct` can price anything.
+ * Addresses whose balance of a non-quote token changed by more than a fee: the traders, and the
+ * pools they traded against. Their code kind tells the two apart, so the caller looks it up first.
  */
 export function participants(receipt: ReceiptInput, quote: ReadonlyMap<Address, QuoteToken>): Address[] {
   return [...netFlows(parse(receipt).transfers, quote, NOBODY).keys()];
@@ -137,10 +131,9 @@ export function tokensToResolve(
 }
 
 /**
- * The trade legs of every trader in the transaction, in log order. A trader is an
- * externally owned account whose balance of the token changed; a transfer between two
- * traders is an inventory move, not a trade, and a transfer between two contracts is
- * a hop. `unknown` is set when some participant's kind is not in `kinds`.
+ * The trade legs of every trader in the transaction, in log order. A trader is an externally
+ * owned account whose balance of the token changed; a transfer between two traders is an
+ * inventory move, between two contracts a hop. `unknown` is set when a participant's kind is missing.
  */
 function tradeLegs(all: Transfer[], ctx: ReconstructContext): { legs: Leg[]; unknown: boolean } {
   const flows = netFlows(all, ctx.quote, ctx.wallets);
@@ -158,10 +151,9 @@ function tradeLegs(all: Transfer[], ctx: ReconstructContext): { legs: Leg[]; unk
     if (ctx.quote.has(t.token) || t.from === ZERO) continue;
     const buyer = isTrader(t.to, t.token);
     const seller = isTrader(t.from, t.token);
-    // A tracked wallet on exactly one side is that wallet's fill whatever stands on the
-    // other: fomo settles a tokenised stock out of its own account, which looks like a
-    // transfer between two accounts and is the trader's buy all the same. Only a move
-    // between two tracked wallets is inventory.
+    // A tracked wallet on exactly one side is that wallet's fill whatever stands on the other:
+    // fomo settles a tokenised stock out of its own account, which looks like a transfer between
+    // two accounts and is the trader's buy all the same. Only wallet to wallet is inventory.
     const takes = buyer && ctx.wallets.has(t.to);
     const gives = seller && ctx.wallets.has(t.from);
     let side: "buy" | "sell";
@@ -191,11 +183,9 @@ function tradeLegs(all: Transfer[], ctx: ReconstructContext): { legs: Leg[]; unk
 }
 
 /**
- * The log range holding a leg's cash. A buy is paid before the token arrives, so it
- * owns the logs since the previous trader's leg; a sell is paid after the token
- * leaves, so it owns the logs up to the next one. One case cannot be split without
- * guessing: a sell followed by another trader's buy, where both traders' cash sits
- * in the same gap. That leg falls back to the price feed.
+ * The log range holding a leg's cash. A buy is paid before the token arrives, so it owns the logs
+ * since the previous trader's leg; a sell is paid after, so it owns the logs up to the next one.
+ * A sell followed by another trader's buy puts both their cash in one gap, and falls back to the feed.
  */
 function segment(i: number, legs: Leg[]): [number, number] | undefined {
   const leg = legs[i]!;
@@ -210,14 +200,9 @@ function segment(i: number, legs: Leg[]): [number, number] | undefined {
 }
 
 /**
- * Turn one receipt into the fills it contains.
- *
- * The trade is invisible in the wallet's own balance changes: fomo routes through
- * relay.link, so the cash never touches the trader's address.
- * What is reliable is that a route settles one amount of quote token, split across
- * pool hops and re-sent by each relayer, so the largest single quote transfer inside
- * the trade's own log range is the size of the trade. A relayer can pack several
- * traders' swaps into one transaction; their legs split the log range between them.
+ * Turn one receipt into the fills it contains. The trade is invisible in the wallet's own balance
+ * changes — fomo routes through relay.link, so the cash never touches the trader's address — but a
+ * route settles one amount of quote token, so the largest quote transfer in its log range is its size.
  */
 export function reconstruct(receipt: ReceiptInput, ctx: ReconstructContext): StoredFill[] {
   const { tx, block, transfers: all } = parse(receipt);
@@ -229,9 +214,8 @@ export function reconstruct(receipt: ReceiptInput, ctx: ReconstructContext): Sto
   legs.forEach((leg, i) => {
     if (!ctx.wallets.has(leg.trader)) return;
     const amount = scale(leg.value, ctx.decimals.get(leg.token) ?? 18);
-    // A leg whose range holds no cash — an airdrop, a token-for-token route, the one
-    // batch layout that cannot be split — is estimated from the price feed, which is
-    // what the original marks `~`.
+    // A leg whose range holds no cash — an airdrop, a token-for-token route, the one batch
+    // layout that cannot be split — is estimated from the price feed, which the tape marks `~`.
     const range = unknown ? undefined : segment(i, legs);
     const cash = range ? cashUsd(all, ctx, range) : undefined;
     const feed = ctx.prices?.get(leg.token);
@@ -269,50 +253,26 @@ export function reconstruct(receipt: ReceiptInput, ctx: ReconstructContext): Sto
 
 /** Under this, a fill nobody paid for is not worth a line of the tape. */
 export const DUST_USD = 5;
-/**
- * Wallets credited with the same amount, by one sender, in one transaction, before the
- * transfer is a handout rather than a trade. Measured 2026-09-06: fomodoge was pushed to
- * seventy-three wallets at a time, 81 817 459.405 each, in transactions that called the
- * token itself — 359 fills and $3.39M of "buys" against a pool that traded $11k all day.
- */
+/** Wallets credited the same amount by one sender in one transaction, past which it is a handout. */
 const HANDED_TO = 5;
 
 /**
- * A tracker is worth spamming: a script pushes a worthless token to every wallet on the
- * list to get itself onto the tape. What separates that from a trade is the shape of the
- * whole transaction — no quote token moved in it, so nobody paid for anything; the
- * counterparty took nothing but the same token back, so it handed the token out rather
- * than traded it (a pool always receives the other side of the swap, while a dusting
- * script is fed the token it sprays and sprays it on); and the token is not a tokenised
- * stock, which fomo settles out of an account of its own. Past those, two things end it:
- * the shape of the transfer itself — one token, one sender, nothing coming back — or, for
- * a receipt that at least looks like a trade, a fill worth cents. The
- * verdict needs no history, which is the point: the first fill of a token minted a
- * second ago is already off the tape, and one real trade in it clears the flag from its
- * whole history (`clearDust`).
+ * A tracker is worth spamming: a script pushes a worthless token to every wallet on the list to
+ * get onto the tape. What separates that from a trade is the shape of the whole transaction — no
+ * quote token moved, the counterparty took nothing back, and the token is not one fomo settles.
  */
 function isDusting(leg: Leg, usd: number | null, paidFor: boolean, all: Transfer[], ctx: ReconstructContext): Dust {
   if (paidFor || ctx.isStock?.(leg.token)) return TRADE;
   if (all.some((t) => t.to === leg.counterparty && t.token !== leg.token)) return TRADE;
-  // The shape first: a handout of a token that trades for real is still a handout, and
-  // saying so with the same flag as "worth cents" is what let one paid buy undo it.
+  // The shape first: a handout of a token that trades for real is still a handout.
   if (pushed(leg, all) || handedOut(leg, all)) return HANDOUT;
   return usd === null || usd < DUST_USD ? DUSTED : TRADE;
 }
 
 /**
- * A spray does not need to fit in one transaction. The same script sends the same amount to
- * one wallet at a time, a few seconds apart, and each transaction on its own is a wallet
- * whose balance went up — which is why counting recipients within a receipt does not see it.
- * What such a transaction never has is a second side: the whole receipt is one token leaving
- * one sender, and the caller has already established that nothing came back for it. A trade
- * moves two things; this moves one. Measured 2026-09-06: 6 300 BREW pushed to 75 wallets in
- * 87 transactions, six seconds apart, priced at $392.55 each by a pool that had traded
- * nineteen cents all day — $34k of "buys" nobody paid for.
- *
- * A tokenised stock arrives in exactly this shape and is a real fill, which is why the
- * stock check runs before this one: four in five of the archive's clean fills come from
- * receipts in which no quote token moved at all.
+ * A spray need not fit in one transaction: the same script sends the same amount to one wallet at
+ * a time, seconds apart, so counting recipients within a receipt does not see it. Such a receipt is
+ * one token leaving one sender — as is a tokenised stock, which is why its check runs before this.
  */
 function pushed(leg: Leg, all: Transfer[]): boolean {
   const sender = leg.side === "buy" ? leg.counterparty : leg.trader;
@@ -320,10 +280,9 @@ function pushed(leg: Leg, all: Transfer[]): boolean {
 }
 
 /**
- * The other half of the same verdict, for a token whose pool gives the handout a price.
- * Value cannot tell a spray from a trade — an airdrop of a token with a live pool is worth
- * whatever the pool says — but the shape can: one sender, one amount, many wallets at once.
- * Nobody buys the identical quantity as seventy other people in the same transaction.
+ * The other half of the verdict, for a token whose pool gives the handout a price. Value cannot
+ * tell a spray from a trade there, but shape can: nobody buys the identical quantity as seventy
+ * other people in the same transaction.
  */
 function handedOut(leg: Leg, all: Transfer[]): boolean {
   const wallets = new Set<string>();

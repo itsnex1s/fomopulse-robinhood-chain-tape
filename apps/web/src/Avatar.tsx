@@ -9,11 +9,7 @@ const hash = (seed: string) => {
   return h >>> 0;
 };
 
-/**
- * fomo's picture when there is one, otherwise a chip derived from the address — the
- * same wallet always draws the same chip, so a trader is still recognisable in a
- * dense tape without fetching anything.
- */
+/** fomo's picture when there is one, else a chip derived from the address: same wallet, same chip. */
 export const Avatar = memo(function Avatar({
   src,
   seed,

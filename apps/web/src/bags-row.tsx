@@ -156,7 +156,6 @@ export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: 
             >
               <Avatar src={first.avatar_url} seed={first.handle} size={14} />
               {first.handle}
-              {/* How much of the bag is this one trader: a consensus reads differently from a whale. */}
               <span className="text-[10px] text-dimmer" title="share of the bag held by its largest holder">
                 {share}%
               </span>

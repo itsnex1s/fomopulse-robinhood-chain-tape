@@ -1,8 +1,4 @@
-/**
- * The storage layer's public surface: callers import from here, and the modules under
- * ./db own one concern each. The schema is in ./db/schema.ts and it is the whole story:
- * there are no migrations, a database that does not match is deleted and re-synced.
- */
+/** The storage layer's public surface: import from here, not from ./db/*, where each module owns one concern. */
 
 export * from "./db/bags.ts";
 export { db } from "./db/connection.ts";

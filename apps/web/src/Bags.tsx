@@ -28,9 +28,8 @@ export function Bags() {
     sort,
     BY,
   );
-  // The chains the list actually holds, the tape's own first and the rest by how much of
-  // the list they are. fomo reports a trader's positions on every chain it follows, so a
-  // bag list is five chains deep and the filter has to say which is which.
+  // The chains the list actually holds, the tape's own first: fomo reports a trader's
+  // positions on every chain it follows, so a bag list is five chains deep.
   const counts = new Map<number, number>();
   for (const bag of data ?? []) counts.set(bag.network, (counts.get(bag.network) ?? 0) + 1);
   const chains = [...counts.entries()].sort(
