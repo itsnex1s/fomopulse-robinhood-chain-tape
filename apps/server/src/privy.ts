@@ -48,6 +48,9 @@ let renewedAt = 0;
 let triedAt = 0;
 let renewError: string | null = null;
 
+/** Runs long enough to be a token, masked: an upstream body can echo the credential it refused. */
+export const redact = (text: string): string => text.replace(/[A-Za-z0-9_-]{20,}/g, "…");
+
 /** A stored session is this deployment's only if it grew out of the refresh token deployed
  *  now: a new secret starts a new session, and an old row would shadow it forever. */
 function stored(seed: Session): Session | undefined {
@@ -115,7 +118,12 @@ async function renew(session: Session): Promise<void> {
     // Bounded like every other call in the tick: a fetch that never settles holds the pass.
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error(`privy sessions → ${response.status} ${(await response.text()).slice(0, 160)}`);
+  if (!response.ok) {
+    // The body goes to the log and no further. An auth service can quote back the credential
+    // it just refused, and this error is what /api/alive serves to anyone who asks.
+    log.warn(`privy sessions → ${response.status}: ${redact((await response.text()).slice(0, 160))}`);
+    throw new Error(`privy sessions → ${response.status}`);
+  }
   const body = (await response.json()) as {
     token?: string | null;
     privy_access_token?: string | null;
