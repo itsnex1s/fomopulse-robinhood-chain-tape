@@ -3,6 +3,12 @@
  */
 import { limits, WINDOWS } from "../../server/src/limits.ts";
 
+/** The platform's rate limiter, as the unsafe binding hands it over: one call per request,
+ *  counted per key in the colo the request landed in. */
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 const window = new Set<string>(WINDOWS);
 const STEPS = limits.cache.limitSteps;
 const CAP = STEPS[STEPS.length - 1]!;
@@ -39,3 +45,26 @@ export function canonical(url: URL): URL {
   set.sort();
   return out;
 }
+
+/**
+ * Whether this address has had its minute's worth of the object. Counted only where the cache
+ * could not answer, so a reader whose page is being served from the colo spends none of it;
+ * what it bounds is the one thing the cache cannot, a cursor whose every value is a different
+ * and entirely valid page. See cache.objectRequestsPerMinute in config/limits.json.
+ */
+export async function throttled(limiter: RateLimiter | undefined, request: Request): Promise<Verdict> {
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip === null || limiter === undefined) return "off";
+  return (await limiter.limit({ key: ip })).success ? "ok" : "over";
+}
+
+/** Said in `x-limit` on every answer that reached the object: whether the ceiling is in force
+ *  at all, and whether this address is inside it. A limiter that quietly does nothing looks
+ *  exactly like one nobody has reached, which is the one thing worth telling apart. */
+export type Verdict = "off" | "ok" | "over";
+
+export const tooMany = (): Response =>
+  new Response(JSON.stringify({ error: "too many requests" }), {
+    status: 429,
+    headers: { "content-type": "application/json", "retry-after": "60" },
+  });

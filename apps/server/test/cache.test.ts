@@ -1,7 +1,7 @@
 /** The canonical query the edge files an answer under. Every value a reader can vary that this
  *  does not fold down is a cache miss they can ask for as often as they like. */
 import { expect, test } from "bun:test";
-import { canonical } from "../../worker/src/cache.ts";
+import { canonical, throttled, tooMany } from "../../worker/src/cache.ts";
 
 const key = (query: string) => canonical(new URL(`https://tape.test/api/tape${query}`)).toString();
 
@@ -40,4 +40,27 @@ test("what the app itself asks for survives untouched", () => {
   expect(asked.searchParams.get("stocks")).toBe("true");
   expect(asked.searchParams.get("dust")).toBe("false");
   expect(asked.pathname).toBe("/api/tape");
+});
+
+/** A limiter that refuses everything past `allow`, the way the platform's does per colo. */
+const limiter = (allow: number) => {
+  let seen = 0;
+  return { limit: () => Promise.resolve({ success: ++seen <= allow }) };
+};
+const from = (ip: string | null) =>
+  new Request("https://tape.test/api/tape", { headers: ip === null ? {} : { "cf-connecting-ip": ip } });
+
+test("an address past its minute's worth of the object is refused, and told for how long", async () => {
+  const limit = limiter(2);
+  expect(await throttled(limit, from("1.2.3.4"))).toBe("ok");
+  expect(await throttled(limit, from("1.2.3.4"))).toBe("ok");
+  expect(await throttled(limit, from("1.2.3.4"))).toBe("over");
+  const refusal = tooMany();
+  expect(refusal.status).toBe(429);
+  expect(refusal.headers.get("retry-after")).toBe("60");
+});
+
+test("no limiter and no address are both no ceiling, not a refused reader", async () => {
+  expect(await throttled(undefined, from("1.2.3.4"))).toBe("off");
+  expect(await throttled(limiter(0), from(null))).toBe("off");
 });
