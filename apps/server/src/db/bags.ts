@@ -1,99 +1,45 @@
 import type { Bag } from "../api/types.ts";
 import { db } from "./connection.ts";
-import type { StoredQuote } from "./prices.ts";
+import { getMeta, setMeta } from "./meta.ts";
 
-/** What the tracked traders are sitting in, by token. A token off the tracked chain keeps its name and quote
- *  in bag_tokens rather than in tokens/prices, and every refresh writes a bag_history snapshot so the screen
- *  can say whether traders are piling in or leaving over a window. */
+/** What the tracked traders are sitting in, by token: net positions off this tape's fills,
+ *  the feed's quote against them, and the token's flow inside the window. */
 const stmt = {
-  /** Parameters: the chain we follow, the start of the window, how many rows. */
-  bags: db.query<BagRow, [number, number, number]>(
-    `SELECT h.token AS token, h.network AS network, MAX(h.image_url) AS image_url,
-            COALESCE(t.symbol, b.symbol) AS symbol, COALESCE(t.name, b.name) AS name,
-            COUNT(*) AS holders, SUM(h.value) AS value, SUM(h.pnl) AS pnl, MAX(h.value) AS top_value,
-            SUM(h.amount) AS amount,
-            COALESCE(p.price_usd, b.price, MAX(h.price)) AS price,
-            COALESCE(p.updated_at, b.quoted_at) AS quoted_at,
-            COALESCE(p.liquidity_usd, b.liquidity) AS liquidity,
-            COALESCE(p.change24, b.change24) AS change24,
-            COALESCE(p.pair_created_at, b.pair_created_at) AS pair_created_at,
-            COALESCE(p.pair_address, b.pair_address) AS pair_address,
-            MAX(h.updated_at) AS updated_at,
-            (SELECT handle FROM holdings x WHERE x.token = h.token AND x.network = h.network
-              ORDER BY x.value DESC LIMIT 1) AS top_holder,
-            COALESCE(w.fills, 0) AS fills, COALESCE(w.buys, 0) AS buys,
-            COALESCE(w.bought_usd, 0) AS bought_usd, COALESCE(w.sold_usd, 0) AS sold_usd,
-            COALESCE(w.traders_in, 0) AS traders_in,
-            l.last_fill_ts AS last_fill_ts,
-            o.first_buyer AS first_buyer, o.first_buy_ts AS first_buy_ts,
-            (SELECT y.holders FROM bag_history y
-              WHERE y.token = h.token AND y.network = h.network AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS holders_then,
-            (SELECT y.value FROM bag_history y
-              WHERE y.token = h.token AND y.network = h.network AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS value_then
-       FROM holdings h
-       LEFT JOIN tokens t ON t.address = h.token AND h.network = ?1
-       LEFT JOIN bag_tokens b ON b.token = h.token AND b.network = h.network
-       LEFT JOIN prices p ON p.token = h.token AND h.network = ?1
-       LEFT JOIN (SELECT token, COUNT(*) AS fills, COALESCE(SUM(side = 'buy'), 0) AS buys,
-                         COALESCE(SUM(CASE WHEN side = 'buy' THEN usd END), 0) AS bought_usd,
-                         COALESCE(SUM(CASE WHEN side = 'sell' THEN usd END), 0) AS sold_usd,
-                         COUNT(DISTINCT wallet) AS traders_in
-                    FROM fills WHERE dust = 0 AND ts >= ?2 GROUP BY token) w
-         ON w.token = h.token AND h.network = ?1
-       LEFT JOIN (SELECT token, MAX(ts) AS last_fill_ts FROM fills WHERE dust = 0 GROUP BY token) l
-         ON l.token = h.token AND h.network = ?1
-       -- One MIN and a bare column beside it: SQLite answers that column from the row the
-       -- MIN came from, which is the first buy and the wallet that made it, in one pass.
-       LEFT JOIN (SELECT token, MIN(ts) AS first_buy_ts, wallet AS first_buyer
-                    FROM fills WHERE dust = 0 AND side = 'buy' GROUP BY token) o
-         ON o.token = h.token AND h.network = ?1
-      GROUP BY h.token, h.network
-      ORDER BY value DESC
-      LIMIT ?3`,
-  ),
-  /** Names never overwrite a quote and a quote never overwrites a name: two writers, one row. */
-  saveBagToken: db.query(
-    `INSERT INTO bag_tokens (token, network, symbol, name, updated_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (token, network) DO UPDATE SET symbol = excluded.symbol, name = excluded.name,
-       updated_at = excluded.updated_at`,
-  ),
-  saveBagQuote: db.query(
-    `INSERT INTO bag_tokens (token, network, updated_at, price, liquidity, change24, pair_created_at, pair_address, quoted_at)
-     VALUES (?1, ?2, ?9, ?3, ?4, ?5, ?6, ?7, ?9)
-     ON CONFLICT (token, network) DO UPDATE SET price = excluded.price, liquidity = excluded.liquidity,
-       change24 = excluded.change24, pair_created_at = COALESCE(excluded.pair_created_at, bag_tokens.pair_created_at),
-       pair_address = COALESCE(excluded.pair_address, bag_tokens.pair_address), quoted_at = excluded.quoted_at`,
-  ),
-  /** Held tokens by chain with the age of each quote — the feed's on the tracked chain, the one kept beside
-   *  the bag elsewhere — so the caller can take the stalest first. Parameter: the chain we follow. */
-  heldTokens: db.query<{ token: string; network: number; quoted_at: number | null }, [number]>(
-    `SELECT h.token AS token, h.network AS network, COALESCE(MAX(p.updated_at), MAX(b.quoted_at)) AS quoted_at
-       FROM holdings h
-       LEFT JOIN prices p ON p.token = h.token AND h.network = ?1
-       LEFT JOIN bag_tokens b ON b.token = h.token AND b.network = h.network
-      GROUP BY h.token, h.network`,
-  ),
+  /** One row per token per hour, so a window can be compared against its own start.
+   *  Stamped on the hour with OR IGNORE: a job on any clock still leaves one row an hour. */
   recordBagHistory: db.query(
-    `INSERT OR IGNORE INTO bag_history (token, network, ts, holders, value, pnl)
-     SELECT token, network, ?, COUNT(*), SUM(value), SUM(pnl) FROM holdings GROUP BY token, network`,
+    `WITH pos AS (
+       SELECT wallet, token,
+         SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
+         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN usd ELSE 0 END) AS bought_usd,
+         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN amount ELSE 0 END) AS bought_amount
+         FROM fills WHERE dust = 0 GROUP BY wallet, token
+     )
+     INSERT OR IGNORE INTO bag_hours (token, network, ts, holders, value, pnl)
+     SELECT pos.token, ?2, ?1, COUNT(*), SUM(pos.amount * p.price_usd),
+            SUM(CASE WHEN pos.bought_amount > 0
+                     THEN pos.amount * (p.price_usd - pos.bought_usd / pos.bought_amount) END)
+       FROM pos JOIN prices p ON p.token = pos.token
+      WHERE pos.amount > 0
+      GROUP BY pos.token`,
   ),
-  pruneBagHistory: db.query("DELETE FROM bag_history WHERE ts < ?"),
-  /** Held tokens still without a name, newest bag first, for the feed to look up. */
-  unnamedBags: db.query<{ token: string; network: number }, [number, number]>(
-    `SELECT h.token AS token, h.network AS network
-       FROM holdings h
-       LEFT JOIN tokens t ON t.address = h.token AND h.network = ?1
-       LEFT JOIN bag_tokens b ON b.token = h.token AND b.network = h.network
-      WHERE COALESCE(t.symbol, b.symbol) IS NULL
-      GROUP BY h.token, h.network
-      ORDER BY SUM(h.value) DESC
-      LIMIT ?2`,
+  pruneBagHistory: db.query("DELETE FROM bag_hours WHERE ts < ?"),
+  /** Held tokens still without a name, largest bag first, for the chain to be asked about. */
+  unnamedBags: db.query<{ token: string }, [number]>(
+    `WITH pos AS (
+       SELECT wallet, token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
+         FROM fills WHERE dust = 0 GROUP BY wallet, token
+     )
+     SELECT pos.token AS token FROM pos
+       LEFT JOIN tokens t ON t.address = pos.token
+       LEFT JOIN prices p ON p.token = pos.token
+      WHERE pos.amount > 0 AND t.symbol IS NULL
+      GROUP BY pos.token
+      ORDER BY SUM(pos.amount) * COALESCE(MAX(p.price_usd), 0) DESC
+      LIMIT ?1`,
   ),
-  holdersOf: db.query<{ handle: string; value: number; pnl: number | null }, [string, number]>(
-    "SELECT handle, value, pnl FROM holdings WHERE token = ? AND network = ? ORDER BY value DESC LIMIT 8",
-  ),
-  /** Tokens a tracked wallet is still long on this tape, with the age of their quote, for when there are no
-   *  holdings to read a position off. Neither ordered nor bounded: the caller does both. */
+  /** Tokens a tracked wallet is still long, with the age of their quote, so the feed knows
+   *  what to mark. Neither ordered nor bounded: the caller does both. */
   tapeTokens: db.query<{ token: string; quoted_at: number | null }, []>(
     `WITH pos AS (
        SELECT token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
@@ -158,7 +104,10 @@ const stmt = {
             COALESCE(w.traders_in, 0) AS traders_in,
             l.last_fill_ts AS last_fill_ts,
             o.first_buyer AS first_buyer, o.first_buy_ts AS first_buy_ts,
-            NULL AS holders_then, NULL AS value_then
+            (SELECT y.holders FROM bag_hours y
+              WHERE y.token = s.token AND y.ts <= ?1 ORDER BY y.ts DESC LIMIT 1) AS holders_then,
+            (SELECT y.value FROM bag_hours y
+              WHERE y.token = s.token AND y.ts <= ?1 ORDER BY y.ts DESC LIMIT 1) AS value_then
        FROM shown s
        LEFT JOIN bag b ON b.token = s.token
        LEFT JOIN tokens t ON t.address = s.token
@@ -170,39 +119,76 @@ const stmt = {
       ORDER BY value DESC
       LIMIT ?2`,
   ),
-  /** Net-long wallets of a token, largest position first, for a tape bag's holders. */
-  tapeHolders: db.query<{ wallet: string; value: number | null }, [string, number]>(
-    `SELECT wallet,
-            SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END)
-              * (SELECT price_usd FROM prices p WHERE p.token = fills.token) AS value
-       FROM fills WHERE token = ? AND dust = 0
-       GROUP BY wallet HAVING SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) > 0
-       ORDER BY value DESC LIMIT ?`,
-  ),
 };
 
-/** What the bags queries return: the API's bag, less what the server adds on top. `first_buyer` is still the
- *  wallet here; the server turns it into a handle. */
-export type BagRow = Omit<Bag, "source" | "is_stock" | "holders_list">;
+/** What the bag query returns: the API's bag, less what the server adds on top.
+ *  `first_buyer` and `top_holder` are still wallets here; the server makes them handles. */
+export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
 
-export const bags = (chainId: number, sinceTs: number, limit: number): BagRow[] =>
-  stmt.bags.all(chainId, sinceTs, limit);
-export const holdersOf = (token: string, network: number) => stmt.holdersOf.all(token, network);
-/** Bags read off the tape instead of fomo: position columns from net fills, flow columns from the window. */
+/** Tokens the tracked wallets hold or moved lately: position columns from net fills, flow
+ *  columns from the window. */
 export const tapeBags = (sinceTs: number, limit: number): BagRow[] => stmt.tapeBags.all(sinceTs, limit);
-export const tapeHolders = (token: string, limit = 8) => stmt.tapeHolders.all(token, limit);
 export const tapeTokens = () => stmt.tapeTokens.all();
-export const unnamedBags = (chainId: number, limit: number) => stmt.unnamedBags.all(chainId, limit);
-export const saveBagToken = (token: string, network: number, symbol: string, name: string | null, at: number) =>
-  stmt.saveBagToken.run(token, network, symbol, name, at);
-export const heldTokens = (chainId: number) => stmt.heldTokens.all(chainId);
-export const saveBagQuote = (token: string, network: number, q: StoredQuote, at: number) =>
-  stmt.saveBagQuote.run(token, network, q.price, q.liquidity, q.change24, q.pairCreatedAt, q.pair, null, at);
 
-/** One snapshot of every bag; history older than three months is let go. */
-export function recordBagHistory(at: number): void {
+/** One bag's largest holders, as the screen lists them under the row. */
+export interface Holder {
+  wallet: string;
+  value: number | null;
+}
+
+/**
+ * The net-long wallets of a whole page of bags, largest position first, in one query: the
+ * tokens are all known before the first of them is needed. Within a token the price is one
+ * number, so ordering by amount held is ordering by what it is worth. The IN list varies
+ * only by page size, so the connection caches a handful of prepared shapes.
+ */
+export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
+  const held = new Map<string, Holder[]>();
+  if (tokens.length === 0) return held;
+  const rows = db
+    .query<{ token: string; wallet: string; value: number | null }, (string | number)[]>(
+      `WITH pos AS (
+         SELECT token, wallet, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
+           FROM fills WHERE dust = 0 AND token IN (${tokens.map(() => "?").join(", ")})
+          GROUP BY token, wallet
+       ),
+       ranked AS (
+         SELECT token, wallet, amount,
+                ROW_NUMBER() OVER (PARTITION BY token ORDER BY amount DESC) AS place
+           FROM pos WHERE amount > 0
+       )
+       SELECT r.token AS token, r.wallet AS wallet, r.amount * p.price_usd AS value
+         FROM ranked r LEFT JOIN prices p ON p.token = r.token
+        WHERE r.place <= ?
+        ORDER BY r.token, r.place`,
+    )
+    .all(...tokens, per);
+  for (const row of rows) {
+    const list = held.get(row.token);
+    if (list === undefined) held.set(row.token, [{ wallet: row.wallet, value: row.value }]);
+    else list.push({ wallet: row.wallet, value: row.value });
+  }
+  return held;
+}
+
+export const unnamedBags = (limit: number) => stmt.unnamedBags.all(limit).map((row) => row.token);
+
+/** The hour the last snapshot was taken for, so a pass that is not the first of its hour is free. */
+const BAG_HOUR = "bags:hour";
+
+/**
+ * The hour's snapshot of every marked bag, and the history past the longest window let go:
+ * a month and a day, since the widest window a page offers is thirty days. The reading
+ * behind it is a grouped pass over every fill, so the hour it last wrote is kept in `meta`
+ * and a call that is not the first of its hour costs one row.
+ */
+export function recordBagHistory(at: number, network: number): boolean {
+  const hour = at - (at % 3_600);
+  if (getMeta(BAG_HOUR) === `${hour}`) return false;
   db.transaction(() => {
-    stmt.recordBagHistory.run(at);
-    stmt.pruneBagHistory.run(at - 90 * 86_400);
+    stmt.recordBagHistory.run(hour, network);
+    stmt.pruneBagHistory.run(at - 31 * 86_400);
+    setMeta(BAG_HOUR, hour);
   })();
+  return true;
 }

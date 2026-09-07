@@ -1,7 +1,7 @@
 import fomoConfig from "../../../config/fomo.json" with { type: "json" };
 import type { Bag, Fill, Overview, Status, Trader, Window } from "./types.ts";
 
-/** The service the trader numbers come from, named once for the whole app in config/fomo.json. */
+/** The service the tracked handles and avatars come from, named once in config/fomo.json. */
 const FOMO = fomoConfig.site;
 
 const json = async <T>(url: string): Promise<T> => {
@@ -29,7 +29,7 @@ export const getBags = (window: Window) => json<Bag[]>(`/api/bags?window=${windo
 /** The chain this tape follows; the server configures the same id. */
 export const TRACKED_CHAIN = 4663;
 
-/** DexScreener names the chains fomo reports holdings on. */
+/** DexScreener names the chains a bag can sit on. */
 const SLUGS: Record<number, string> = {
   4663: "robinhood",
   56: "bsc",
@@ -41,8 +41,6 @@ const SLUGS: Record<number, string> = {
 const FOMO_SLUGS: Record<number, string> = { ...SLUGS, 56: "bnb" };
 export const chainName = (id: number) =>
   ({ 4663: "", 56: "BSC", 1399811149: "SOL", 1: "ETH", 8453: "BASE" })[id] ?? `#${id}`;
-/** What to call a chain where it has to be named outright; `chainName` leaves the tape's own blank. */
-export const chainLabel = (id: number) => SLUGS[id] ?? `chain #${id}`;
 /** The pool the quote came from when there is one, else the token's page. */
 export const bagUrl = (bag: { network: number; token: string; pair_address?: string | null }) =>
   SLUGS[bag.network] ? `https://dexscreener.com/${SLUGS[bag.network]}/${bag.pair_address ?? bag.token}` : undefined;

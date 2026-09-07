@@ -1,11 +1,12 @@
-import { ago, compact, signed, usdCompact } from "./format.ts";
+import { compact, signed, usdCompact } from "./format.ts";
 import type { Bag } from "./types.ts";
 
 export const name = (bag: Bag) => bag.symbol ?? `${bag.token.slice(0, 8)}…`;
 
 /**
- * What the bag returned on what it cost: fomo publishes the position and the profit, so cost is
- * the difference — and where the profit is the larger, some was taken out and cost is unknowable.
+ * What the bag returned on what it cost: the position and its profit are both measured, so
+ * cost is the difference — and where the profit is the larger, some was taken out and cost
+ * is unknowable. Those rows show the dollars alone rather than a ratio that is not there.
  */
 export const ret = (value: number | null, pnl: number | null): number | null => {
   if (value === null) return null;
@@ -36,20 +37,17 @@ export const BY: Record<SortKey, (bag: Bag) => number> = {
 };
 
 /**
- * The same positions at the feed's mark: fomo's profit is as old as its last leaderboard read.
- * Cost is value less profit, so it stays quiet where any of the three numbers is missing.
+ * What the bag cost the wallets holding it, on hover: value less profit. Quiet where either
+ * number is missing, and where profit is the larger — a bag whose cost came out has none left
+ * to show.
  */
-export function remarked(bag: Bag): string {
-  if (bag.pnl === null || bag.value === null || bag.quoted_at === null || bag.price === null || bag.amount <= 0)
-    return "";
-  const cost = bag.value - bag.pnl;
-  if (cost <= 0) return "";
-  const live = bag.amount * bag.price - cost;
-  const r = live / cost;
-  return `at the feed's mark: ${signed(live)} (${retLabel(r)}) · fomo's figure is ${ago(bag.updated_at)} old`;
+export function cost(bag: Bag): string {
+  if (bag.pnl === null || bag.value === null) return "";
+  const paid = bag.value - bag.pnl;
+  return paid <= 0 ? "" : `${usdCompact(paid)} paid for it, at the average price across the buys that carried one`;
 }
 
-/** Everything fomo says about one holder's position, on hover. */
+/** One holder's position, on hover. */
 export function holderTitle(holder: Bag["holders_list"][number]): string {
   const r = ret(holder.value, holder.pnl);
   const pnl = holder.pnl === null ? "" : ` · ${signed(holder.pnl)}${r === null ? "" : ` (${retLabel(r)})`}`;

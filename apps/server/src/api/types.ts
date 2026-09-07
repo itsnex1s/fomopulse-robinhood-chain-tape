@@ -34,7 +34,7 @@ export interface Fill {
   followers: number;
   avatar_url: string | null;
   profile_url: string | null;
-  /** fomo's standing; null until the server has read the leaderboard. */
+  /** The wallet's standing in this tape's books; null until the walk has run. */
   rank: number | null;
   pnl_24h: number | null;
   verified: number;
@@ -104,14 +104,15 @@ export interface Status {
   uptime: number;
   explorer: string;
   dexscreener_slug: string;
-  /** The fomo side: when its numbers last arrived, and why they stopped if they have. */
+  /** The fomo side: when the cards last arrived, and why they stopped if they have. */
   leaderboard: { updated_at: number | null; refused: string | null; asking_again_in: number | null };
 }
 
-/** `GET /api/traders`: our tape stats for the window, plus fomo's own numbers about the trader. */
+/** `GET /api/traders`: what a wallet did on this tape in the window, and what its books made. */
 export interface Trader {
   handle: string;
   address: string;
+  /** Identity, which is all fomo is asked for: the avatar, the clan, the tick. */
   display_name: string | null;
   avatar_url: string | null;
   clan: string | null;
@@ -122,19 +123,29 @@ export interface Trader {
   fills: number;
   tape_volume: number;
   last_ts: number | null;
-  /** fomo's PnL for `pnl_window`, which is the day when the tape shows an hour. */
-  pnl: number | null;
-  rank: number | null;
+  /**
+   * The books, measured on this chain from this tape's fills. `realized`, `trips` and
+   * `wins` are the window's — a round trip counts in the window it closed in — while
+   * `unrealized` and the open position are as of now, because a position has no window.
+   * `rank` is by `total` across every tracked wallet.
+   */
   pnl_window: string;
-  pnl_all: number | null;
-  volume: number | null;
-  trades: number | null;
-  holdings: number | null;
-  top_value: number | null;
-  updated_at: number | null;
+  realized: number | null;
+  unrealized: number | null;
+  total: number | null;
+  trips: number | null;
+  wins: number | null;
+  open_value: number | null;
+  open_tokens: number | null;
+  /** Proceeds from selling what arrived at no cost, which is not profit on anything. */
+  free: number | null;
+  tokens: number | null;
+  first_ts: number | null;
+  stats_at: number | null;
+  rank: number | null;
 }
 
-/** `GET /api/bags`: one token the tracked traders are sitting in, as fomo publishes it — or as this tape measures it. */
+/** `GET /api/bags`: one token the tracked traders are sitting in, as this tape measures it. */
 export interface Bag {
   token: string;
   network: number;
@@ -142,9 +153,7 @@ export interface Bag {
   symbol: string | null;
   name: string | null;
   is_stock: number;
-  /** Whose numbers the position columns are: fomo's, as published, or this tape's, measured off its fills. */
-  source: "fomo" | "tape";
-  /** fomo's numbers over the three positions it publishes per trader — or the net-long wallets on this tape. */
+  /** Wallets on this tape still holding the token, counted off their own fills. */
   holders: number;
   /** What the positions are worth together; null until a price marks them. */
   value: number | null;
@@ -153,7 +162,7 @@ export interface Bag {
   top_value: number | null;
   /** Tokens held across the positions, so the bag can be re-marked at the feed's price. */
   amount: number;
-  /** Live from the feed when `quoted_at` is set, otherwise fomo's price from the last leaderboard read. */
+  /** The feed's price for the token; null until it has quoted one. */
   price: number | null;
   quoted_at: number | null;
   liquidity: number | null;

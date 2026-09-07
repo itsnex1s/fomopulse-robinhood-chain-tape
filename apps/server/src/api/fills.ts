@@ -1,7 +1,7 @@
 import { chainConfig, wallets } from "../config.ts";
 import type { TapeRow } from "../db.ts";
 import { stockOf } from "../stocks.ts";
-import { traderOf } from "../traders.ts";
+import { bookOf, traderOf } from "../traders.ts";
 import type { Fill } from "./types.ts";
 
 const traders = new Map(wallets.map((w) => [w.address, w]));
@@ -13,6 +13,7 @@ export const handleOf = (wallet: string): string => traders.get(wallet as `0x${s
 export function toFill(row: TapeRow): Fill {
   const trader = traders.get(row.wallet as `0x${string}`);
   const fomo = trader ? traderOf(trader.handle) : undefined;
+  const book = bookOf(row.wallet);
   const stock = stockOf(row.token);
   return {
     id: row.id,
@@ -37,9 +38,10 @@ export function toFill(row: TapeRow): Fill {
     followers: fomo?.followers ?? trader?.followers ?? 0,
     avatar_url: fomo?.avatar_url ?? null,
     profile_url: trader?.profile_url ?? null,
-    // fomo's standing, for the trader card; null until `enrich` has run.
-    rank: fomo?.rank_24h ?? null,
-    pnl_24h: fomo?.pnl_24h ?? null,
+    // This tape's standing for the trader card: where the wallet sits among the tracked
+    // ones by the day's books, and what those books say it made.
+    rank: book.rank,
+    pnl_24h: book.pnl,
     verified: fomo?.verified ?? 0,
     clan: fomo?.clan ?? null,
     token: row.token,

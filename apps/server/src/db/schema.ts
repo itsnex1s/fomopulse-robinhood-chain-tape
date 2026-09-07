@@ -41,37 +41,26 @@ export const SCHEMA = `
     change1h REAL, change5m REAL, volume24 REAL, buys24 INTEGER, sells24 INTEGER, market_cap REAL, fdv REAL,
     dex TEXT, image_url TEXT
   );
-  /** fomo's own numbers about a trader: PnL, volume, holdings, avatar. Refreshed, never computed. */
+  /**
+   * Who a tracked trader is, as fomo shows them. Only the identity is kept: the numbers on
+   * both screens are walked from this tape's own fills, and a figure that cannot be checked
+   * against the chain has no business sitting next to one that can.
+   */
   CREATE TABLE IF NOT EXISTS traders (
     handle TEXT PRIMARY KEY, id TEXT, display_name TEXT, avatar_url TEXT, clan TEXT,
-    verified INTEGER NOT NULL DEFAULT 0, followers INTEGER, volume REAL, trades INTEGER,
-    holdings INTEGER, top_value REAL,
-    pnl_all REAL, pnl_24h REAL, pnl_7d REAL, pnl_30d REAL,
-    rank_all INTEGER, rank_24h INTEGER, rank_7d INTEGER, rank_30d INTEGER, updated_at INTEGER NOT NULL
-  );
-  /** The positions fomo publishes per trader — three each, replaced on every refresh. */
-  CREATE TABLE IF NOT EXISTS holdings (
-    handle TEXT NOT NULL, token TEXT NOT NULL, network INTEGER NOT NULL, image_url TEXT,
-    amount REAL NOT NULL, price REAL, value REAL NOT NULL, pnl REAL, updated_at INTEGER NOT NULL,
-    PRIMARY KEY (handle, token, network)
-  );
-  CREATE INDEX IF NOT EXISTS holdings_token ON holdings (token);
-  /**
-   * What a held token is called on a chain this tape does not follow. Separate from
-   * tokens, which is keyed by address alone: the same address is a different token on
-   * BSC and on Base, and these names are read from a feed rather than from the chain.
-   */
-  CREATE TABLE IF NOT EXISTS bag_tokens (
-    token TEXT NOT NULL, network INTEGER NOT NULL, symbol TEXT, name TEXT, updated_at INTEGER NOT NULL,
-    /** The feed's quote for a bag off the tracked chain; on it, the quote lives in prices. */
-    price REAL, liquidity REAL, change24 REAL, pair_created_at INTEGER, pair_address TEXT, quoted_at INTEGER,
-    PRIMARY KEY (token, network)
+    verified INTEGER NOT NULL DEFAULT 0, followers INTEGER, updated_at INTEGER NOT NULL
   );
   /**
-   * What each bag looked like at every refresh — holders and value — so the screen can
-   * say whether the tracked traders are piling in or leaving over the selected window.
+   * What each bag looked like on the hour — how many wallets were long it and what that
+   * was worth — so the screen can say whether the tracked traders are piling in or leaving
+   * over the selected window. Measured off the fills, like the bag itself.
+   *
+   * Named for the hour rather than for history because the old bag_history table counted
+   * something else: the three positions fomo published per trader. A row of that kind
+   * inside a window would be diffed against a wallet count it has nothing to do with, so
+   * the new measure gets a new table and the old one is dropped below.
    */
-  CREATE TABLE IF NOT EXISTS bag_history (
+  CREATE TABLE IF NOT EXISTS bag_hours (
     token TEXT NOT NULL, network INTEGER NOT NULL, ts INTEGER NOT NULL,
     holders INTEGER NOT NULL, value REAL NOT NULL, pnl REAL,
     PRIMARY KEY (token, network, ts)
@@ -93,4 +82,14 @@ export const SCHEMA = `
   );
   /** Small named values that survive a restart: the resume cursor, the feed's source. */
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  /**
+   * And what fomo used to fill in, now that every number on both screens is walked from
+   * the fills: the positions it published per trader, the cards it priced them with, and
+   * the hourly counts taken off them. Not migrations — nothing is carried across, and a
+   * database that is thrown away never sees these lines. They are here so a database that
+   * is not thrown away stops paying for tables no code reads.
+   */
+  DROP TABLE IF EXISTS holdings;
+  DROP TABLE IF EXISTS bag_tokens;
+  DROP TABLE IF EXISTS bag_history;
 `;

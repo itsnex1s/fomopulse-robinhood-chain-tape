@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BY, barWidth, holderTitle, name, net, remarked, ret, retLabel } from "./bags-math.ts";
+import { BY, barWidth, cost, holderTitle, name, net, ret, retLabel } from "./bags-math.ts";
 import type { Bag } from "./types.ts";
 
 const bag = (over: Partial<Bag>): Bag => ({
@@ -9,7 +9,6 @@ const bag = (over: Partial<Bag>): Bag => ({
   symbol: "MARS",
   name: "MarsCoin",
   is_stock: 0,
-  source: "fomo",
   holders: 2,
   value: 30,
   pnl: 20,
@@ -61,9 +60,11 @@ test("flow is bought less sold, and sorts below everything when there is none", 
   expect(name(bag({ symbol: null }))).toBe("0x555555…");
 });
 
-test("the hover re-marks the position at the feed's price", () => {
-  expect(remarked(bag({}))).toContain("at the feed's mark:");
-  expect(remarked(bag({ price: null }))).toBe("");
-  expect(remarked(bag({ pnl: null }))).toBe("");
+test("the hover says what the bag cost, where there is a cost left to say", () => {
+  // $30 of position with $20 of profit in it was bought for $10.
+  expect(cost(bag({}))).toContain("$10 paid for it");
+  // A bag whose profit is larger than the position has had its cost taken out.
+  expect(cost(bag({ pnl: 40 }))).toBe("");
+  expect(cost(bag({ pnl: null }))).toBe("");
   expect(holderTitle({ handle: "alice", value: 30, pnl: 20, avatar_url: null })).toContain("alice · $30");
 });

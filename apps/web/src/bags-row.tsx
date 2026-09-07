@@ -1,6 +1,6 @@
 import { Avatar } from "./Avatar.tsx";
 import { bagUrl, chainName, fomoTokenUrl, TRACKED_CHAIN, traderUrl } from "./api.ts";
-import { barWidth, holderTitle, name, net, remarked, ret, retLabel } from "./bags-math.ts";
+import { barWidth, cost, holderTitle, name, net, ret, retLabel } from "./bags-math.ts";
 import { ago, price as fmtPrice, pct, signed, span, usdCompact } from "./format.ts";
 import { useUi } from "./store.ts";
 import { cell, mid, num, roomy, tone, wide } from "./table.tsx";
@@ -23,7 +23,6 @@ export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: 
   const r = ret(bag.value, bag.pnl);
   const [first, ...rest] = bag.holders_list;
   const share = bag.value && bag.top_value ? Math.round((bag.top_value / bag.value) * 100) : 0;
-  const live = bag.quoted_at !== null;
   const flow = net(bag);
   return (
     <tr key={`${bag.network}:${bag.token}`} className="hover:bg-hover">
@@ -57,14 +56,7 @@ export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: 
           )}
         </span>
       </td>
-      <td
-        className={`${num} text-dim`}
-        title={
-          bag.source === "tape"
-            ? "wallets still long on this tape"
-            : "tracked traders who list it among their top positions"
-        }
-      >
+      <td className={`${num} text-dim`} title="wallets still long on this tape">
         {bag.holders}
         <Delta now={bag.holders} then={bag.holders_then} />
       </td>
@@ -83,20 +75,14 @@ export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: 
           <span className="block h-[6px] rounded-[1px] bg-accent/55" style={{ width: barWidth(bag.value) }} />
         )}
       </td>
-      <td className={`${num} ${tone(bag.pnl)}`} title={remarked(bag)}>
+      <td className={`${num} ${tone(bag.pnl)}`} title={cost(bag)}>
         {bag.pnl === null ? "—" : signed(bag.pnl)}
         {/* Always drawn, so the dollars stay in a column of their own. */}
         <span className="ml-2 hidden w-14 text-right text-dim md:inline-block">{r === null ? "" : retLabel(r)}</span>
       </td>
       <td
-        className={`${num} ${mid} ${live ? "text-dim" : "text-dimmer"}`}
-        title={
-          bag.price === null
-            ? ""
-            : live
-              ? `feed price, ${ago(bag.quoted_at!)} old`
-              : "fomo's price from the last leaderboard read"
-        }
+        className={`${num} ${mid} text-dim`}
+        title={bag.price === null || bag.quoted_at === null ? "" : `feed price, ${ago(bag.quoted_at)} old`}
       >
         {bag.price === null ? "" : fmtPrice(bag.price)}
       </td>

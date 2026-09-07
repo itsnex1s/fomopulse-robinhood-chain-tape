@@ -1,47 +1,27 @@
-/** The bags: fomo's positions, the ones read off the tape when fomo published none, and
- *  what each of them counts. */
+/** The bags: net positions read off the tape, what each of them counts, and how they moved. */
 import { expect, test } from "bun:test";
-import {
-  api,
-  fill,
-  insertFills,
-  now,
-  recordBagHistory,
-  saveBagQuote,
-  saveBagToken,
-  saveHoldings,
-  savePrice,
-  saveToken,
-  wallets,
-} from "./support/api.ts";
+import { api, fill, insertFills, now, recordBagHistory, savePrice, saveToken, wallets } from "./support/api.ts";
 
-test("a bag carries fomo's numbers, the feed's quote, its own tape flow and its change over the window", async () => {
+const CHAIN = 4663;
+
+test("a bag is the net position, the feed's quote, its own tape flow and its change over the window", async () => {
   const trader = wallets[0]!;
   const seller = wallets[1]!;
   const token = "0x5555555555555555555555555555555555555555";
-
-  // Two hours ago the bag was one small position; a snapshot remembers that.
-  saveHoldings(
-    trader.handle,
-    [{ token, network: 4663, image_url: null, amount: 3, price: 3, value: 10, pnl: 2 }],
-    now - 7200,
-  );
-  recordBagHistory(now - 7200);
-  // The same address held on the tracked chain and on BSC: two bags, one of them ours.
-  saveHoldings(
-    trader.handle,
-    [{ token, network: 4663, image_url: null, amount: 10, price: 3, value: 30, pnl: 20 }],
-    now,
-  );
-  saveHoldings("someone", [{ token, network: 56, image_url: null, amount: 4, price: 5, value: 20, pnl: 5 }], now);
-  saveBagToken(token, 56, "MARS", "MarsCoin", now);
-  // The feed quotes both: ours into prices, the BSC one beside its name.
+  saveToken(token, 18, "MARS", "MarsCoin");
   savePrice(
     token,
-    { price: 3.3, liquidity: 50_000, change24: 12.5, pairCreatedAt: (now - 86_400) * 1000, pair: "0xpool" },
-    now,
+    { price: 3, liquidity: 50_000, change24: 12.5, pairCreatedAt: (now - 86_400) * 1000, pair: "0xpool" },
+    now - 7200,
   );
-  saveBagQuote(token, 56, { price: 5.5, liquidity: 9_000, change24: -4, pairCreatedAt: null, pair: null }, now);
+
+  // Two hours ago the bag was one small position, and the hour's snapshot remembers it.
+  insertFills([
+    fill({ tx: "0xbag-old", block: 1, ts: now - 7800, wallet: trader.address, token, amount: 3, usd: 9, price: 3 }),
+  ]);
+  recordBagHistory(now - 7200, CHAIN);
+
+  // Since then one wallet bought more and another sold into it.
   insertFills([
     fill({ tx: "0xbag-test", block: 2, ts: now - 600, wallet: trader.address, token, amount: 10, usd: 30, price: 3 }),
     fill({
@@ -56,61 +36,59 @@ test("a bag carries fomo's numbers, the feed's quote, its own tape flow and its 
       price: 3,
     }),
   ]);
+  savePrice(
+    token,
+    { price: 3.3, liquidity: 50_000, change24: 12.5, pairCreatedAt: (now - 86_400) * 1000, pair: "0xpool" },
+    now,
+  );
 
   const res = await api.request("/api/bags?window=1h&limit=50");
   const bags = (await res.json()) as Record<string, unknown>[];
-  const here = bags.find((bag) => bag.token === token && bag.network === 4663)!;
-  const abroad = bags.find((bag) => bag.token === token && bag.network === 56)!;
+  const bag = bags.find((row) => row.token === token)!;
 
-  // Ours: the fills, who bought first, the net flow, and the live quote from prices.
-  expect(here).toMatchObject({
-    source: "fomo",
+  expect(bag).toMatchObject({
+    network: CHAIN,
+    symbol: "MARS",
+    // The seller went short on this tape and is not counted as holding anything.
     holders: 1,
-    value: 30,
-    pnl: 20,
-    top_value: 30,
+    amount: 13,
     fills: 2,
     buys: 1,
     bought_usd: 30,
     sold_usd: 12,
     traders_in: 2,
     first_buyer: trader.handle,
-    first_buy_ts: now - 600,
+    top_holder: trader.handle,
+    first_buy_ts: now - 7800,
     last_fill_ts: now - 60,
     price: 3.3,
     liquidity: 50_000,
     change24: 12.5,
     pair_address: "0xpool",
     is_stock: 0,
+    // What the snapshot two hours ago holds: one wallet, three tokens at three dollars.
     holders_then: 1,
-    value_then: 10,
+    value_then: 9,
   });
-  // The one on BSC shares the address and nothing else: no fills, a name and a quote from the feed.
-  expect(abroad).toMatchObject({
-    fills: 0,
-    symbol: "MARS",
-    price: 5.5,
-    liquidity: 9_000,
-    change24: -4,
-    holders_then: null,
-  });
-  // Off the window, there is no snapshot to diff against.
+  // Thirteen tokens at the feed's mark of 3.3, bought at 3.
+  expect(bag.value as number).toBeCloseTo(42.9);
+  expect(bag.pnl as number).toBeCloseTo(3.9);
+
+  // Off the window there is no snapshot old enough to diff against.
   const all = (await (await api.request("/api/bags?window=all&limit=50")).json()) as Record<string, unknown>[];
-  expect(all.find((bag) => bag.token === token && bag.network === 4663)!.value_then).toBeNull();
+  expect(all.find((row) => row.token === token)!.value_then).toBeNull();
 });
 
-test("bags read off the tape when fomo published nothing", async () => {
+test("a bag exists on the strength of the fills alone", async () => {
   const trader = wallets[5]!;
   const token = "0x7777777777777777777777777777777777777777";
   saveToken(token, 18, "TAPE", "TapeCoin");
   savePrice(token, { price: 3.3, liquidity: 50_000, change24: 12.5, pairCreatedAt: null, pair: null }, now);
-  // No saveHoldings anywhere: the position comes from the fills alone.
   insertFills([fill({ tx: "0xtape-bag-1", block: 9, wallet: trader.address, token, amount: 10, usd: 30, price: 3 })]);
 
   const bags = (await (await api.request("/api/bags?window=all&limit=200")).json()) as Record<string, unknown>[];
   const row = bags.find((bag) => bag.token === token)!;
   expect(row).toMatchObject({
-    source: "tape",
     network: 4663,
     symbol: "TAPE",
     holders: 1,
@@ -159,7 +137,6 @@ test("a tape bag counts the wallets still long; a sale of tokens bought before t
   const row = bags.find((bag) => bag.token === token)!;
   // Two wallets long twenty tokens at a mark of 2, bought at 1; the exit is flow, not a holding.
   expect(row).toMatchObject({
-    source: "tape",
     holders: 2,
     amount: 20,
     value: 40,
@@ -174,4 +151,16 @@ test("a tape bag counts the wallets still long; a sale of tokens bought before t
   });
   const holders = (row.holders_list as { handle: string; value: number }[]).map((h) => h.handle).sort();
   expect(holders).toEqual([first.handle, second.handle].sort());
+});
+
+/**
+ * The snapshot is one row an hour, but the reading behind it is a grouped pass over every
+ * fill on the tape. The quote pass runs twenty times an hour, and nineteen of those used to
+ * do the whole pass to write nothing.
+ */
+test("the hour is snapshotted once, however often the quote pass comes round", () => {
+  expect(recordBagHistory(now, CHAIN)).toBe(true);
+  expect(recordBagHistory(now + 60, CHAIN)).toBe(false);
+  // A new hour is a new snapshot.
+  expect(recordBagHistory(now + 3_600, CHAIN)).toBe(true);
 });

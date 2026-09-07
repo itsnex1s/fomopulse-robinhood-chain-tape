@@ -95,7 +95,7 @@ async function main(): Promise<void> {
   startPrune();
   // What this tape made of the traders, walked from its own fills.
   startBooks();
-  // PnL, avatars and holdings come from fomo's own leaderboard; we only store them.
+  // Only the card — handle, avatar, clan — comes from fomo; every number is our own.
   startTraders();
 
   if (pollSecs !== undefined) await poll(emit, Number(pollSecs) || 12);

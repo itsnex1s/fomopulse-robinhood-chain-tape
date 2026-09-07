@@ -1,83 +1,40 @@
 import type { Address } from "viem";
 import { chainConfig } from "../config.ts";
-import { heldTokens, namelessTokens, saveBagQuote, saveBagToken, savePrice, tapeTokens, unnamedBags } from "../db.ts";
+import { namelessTokens, recordBagHistory, savePrice, tapeTokens, unnamedBags } from "../db.ts";
 import { readTokens } from "../ingest/resolve.ts";
 import { log } from "../log.ts";
-import { BATCH, fetchNames, fetchQuotes, SLUGS } from "./dexscreener.ts";
+import { BATCH, fetchQuotes } from "./dexscreener.ts";
 
 /**
- * Names and quotes for the tokens the tracked traders hold. fomo publishes a position as an
- * address and a value; most bags sit on chains this tape does not follow, where the price
- * feed is the only source for what the token is called and what it is worth.
+ * Names and quotes for the tokens the tracked traders hold, from the chain that minted them
+ * and the price feed — the same two sources the tape itself reads.
  */
 
-/**
- * A live quote for every held token, whichever chain it sits on. On the tracked chain the
- * quote joins the same prices table the tape uses; elsewhere it sits beside the bag's name.
- * One pass per chain, the stalest quotes first, since a pass does not cover every bag.
- */
+/** A quote for the stalest held tokens: the feed takes thirty addresses a call and the
+ *  wallets are long several hundred, so a pass covers a slice, oldest first. */
 export async function quoteBags(): Promise<void> {
-  const byNetwork = new Map<number, Map<string, number>>();
-  const take = (network: number, token: string, quotedAt: number | null) => {
-    if (!SLUGS[network]) return;
-    const list = byNetwork.get(network) ?? new Map<string, number>();
-    list.set(token, Math.min(list.get(token) ?? Infinity, quotedAt ?? 0));
-    byNetwork.set(network, list);
-  };
-  for (const bag of heldTokens(chainConfig.id)) take(bag.network, bag.token, bag.quoted_at);
-  // Without a session there are no holdings; what the tape sees held still wants a mark.
-  for (const row of tapeTokens()) take(chainConfig.id, row.token, row.quoted_at);
+  const held = tapeTokens();
+  if (held.length === 0) return;
+  const tokens = held
+    .sort((a, b) => (a.quoted_at ?? 0) - (b.quoted_at ?? 0))
+    .slice(0, BATCH)
+    .map((row) => row.token);
   const at = Math.floor(Date.now() / 1000);
-  for (const [network, list] of byNetwork) {
-    const tokens = [...list]
-      .sort(([, a], [, b]) => a - b)
-      .slice(0, BATCH)
-      .map(([token]) => token);
-    const quotes = await fetchQuotes(tokens, SLUGS[network]);
-    for (const [address, quote] of quotes) {
-      if (network === chainConfig.id) savePrice(address, quote, at);
-      else saveBagQuote(address, network, quote, at);
-    }
-  }
+  for (const [address, quote] of await fetchQuotes(tokens)) savePrice(address, quote, at);
+  // The bags as they stand once the quotes are in; the screen diffs against the hour the
+  // window opened in. Stamped on the hour, so running this every three minutes is one row.
+  recordBagHistory(at, chainConfig.id);
 }
 
-/**
- * A bag on a chain this tape does not follow has no contract to ask, so it is named from the
- * price feed, which covers every chain fomo reports a bag on; only while a name is missing.
- */
-async function nameForeignBags(): Promise<void> {
-  const missing = unnamedBags(chainConfig.id, 200).filter((bag) => bag.network !== chainConfig.id);
-  const byNetwork = new Map<number, string[]>();
-  for (const bag of missing) {
-    const slug = SLUGS[bag.network];
-    if (slug) byNetwork.set(bag.network, [...(byNetwork.get(bag.network) ?? []), bag.token]);
-  }
-  const at = Math.floor(Date.now() / 1000);
-  for (const [network, tokens] of byNetwork) {
-    const names = await fetchNames(SLUGS[network]!, tokens.slice(0, BATCH));
-    for (const [address, { symbol, name }] of names) saveBagToken(address, network, symbol, name, at);
-  }
-}
-
-/**
- * A bag on the tracked chain is named from the chain itself, the same source the tape reads.
- * The same multicall repairs the tape's own tokens: one first seen while the RPC was
- * rate-limiting kept its decimals and lost its symbol or its name.
- */
-async function nameHeldTokens(): Promise<void> {
-  const held = unnamedBags(chainConfig.id, 200)
-    .filter((bag) => bag.network === chainConfig.id)
-    .map((bag) => bag.token);
-  await readTokens([...new Set([...held, ...namelessTokens(40)])].slice(0, 40) as Address[]);
-}
-
-/** Both naming passes, each failing on its own: the chain and the feed are different outages. */
+/** A held token is named from the chain, the same source the tape reads. The same multicall
+ *  repairs tokens that kept their decimals and lost a symbol to a rate-limited RPC. */
 export async function nameBags(): Promise<void> {
-  await nameHeldTokens().catch((error) => log.error("tokens", error));
-  await nameForeignBags().catch((error) => log.error("bags", error));
+  const wanted = [...new Set([...unnamedBags(200), ...namelessTokens(40)])].slice(0, 40) as Address[];
+  if (wanted.length === 0) return;
+  await readTokens(wanted).catch((error) => log.error("tokens", error));
 }
 
-/** Quotes move faster than the leaderboard: every three minutes, a request per chain. */
+/** Quotes move faster than anything else on the page: every three minutes, one request. */
 export function startBagQuotes(minutes = 3): void {
   const tick = async () => {
     await quoteBags().catch((error) => log.error("bag quotes", error));
