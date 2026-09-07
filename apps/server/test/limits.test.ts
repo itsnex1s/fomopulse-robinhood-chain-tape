@@ -58,3 +58,15 @@ test("the limits are served as they stand, with what the month has spent against
   expect(body.budget.budget).toBe(limits.budget.rowsPerMonth);
   expect(body.budget.holding).toBe(1);
 });
+
+test("the platform is configured with the ceiling this file states", async () => {
+  // The rate limit is enforced by the binding, which reads wrangler.jsonc and not this repo's
+  // config; the number lives in both, so the two are held to each other here.
+  const jsonc = await Bun.file(new URL("../../worker/wrangler.jsonc", import.meta.url)).text();
+  const configured = JSON.parse(jsonc.replace(/^\s*\/\/.*$/gm, "")) as {
+    unsafe: { bindings: { name: string; simple: { limit: number; period: number } }[] };
+  };
+  const binding = configured.unsafe.bindings.find((b) => b.name === "OBJECT_LIMIT");
+  expect(binding?.simple.period).toBe(60);
+  expect(binding?.simple.limit).toBe(limits.cache.objectRequestsPerMinute);
+});

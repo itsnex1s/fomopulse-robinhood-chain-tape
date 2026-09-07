@@ -33,6 +33,22 @@
   // The object keeps itself awake with an alarm; this is the spare key.
   "triggers": { "crons": ["* * * * *"] },
 
+  // What one address may make the object do in a minute, counted per colo. The cache answers
+  // the reader who is behaving; this is the ceiling on the one thing the cache cannot bound,
+  // a cursor whose every value is a different and entirely valid page. Kept equal to
+  // cache.objectRequestsPerMinute in config/limits.json, which is where the reasoning lives
+  // and which a test holds this to.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "OBJECT_LIMIT",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 60, "period": 60 }
+      }
+    ]
+  },
+
   // The tape's queries are written against bun:sqlite; on this platform they run on the
   // SQLite the object carries. See src/sqlite.ts.
   "alias": { "bun:sqlite": "./src/sqlite.ts" }

@@ -26,10 +26,29 @@ const TTL: [prefix: string, seconds: number][] = Object.entries(limits.cache.edg
  */
 const tape = (env: Env) => env.TAPE.get(env.TAPE.idFromName("tape"), { locationHint: "enam" });
 
+/**
+ * Whether this address has had its minute's worth of the object. Counted only where the cache
+ * could not answer, so a reader whose page is being served from the colo spends none of it;
+ * what it bounds is the one thing the cache cannot, a cursor whose every value is a different
+ * and entirely valid page. See cache.objectRequestsPerMinute in config/limits.json.
+ */
+async function throttled(env: Env, request: Request): Promise<boolean> {
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip === null || env.OBJECT_LIMIT === undefined) return false;
+  return !(await env.OBJECT_LIMIT.limit({ key: ip })).success;
+}
+
+const tooMany = (): Response =>
+  new Response(JSON.stringify({ error: "too many requests" }), {
+    status: 429,
+    headers: { "content-type": "application/json", "retry-after": "60" },
+  });
+
 /** One `/api` request: from the edge cache when it can be, from the object otherwise. */
 async function answer(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
   const asked = canonical(url);
   const direct = async () => {
+    if (await throttled(env, request)) return tooMany();
     const from = await tape(env).fetch(new Request(asked.toString(), request));
     // Copied because a subrequest's headers are immutable and the caller adds to them.
     return new Response(from.body, from);
@@ -49,6 +68,9 @@ async function answer(request: Request, env: Env, ctx: ExecutionContext, url: UR
   }
 
   const response = await direct();
+  // A refusal and an error are this request's, not the colo's: caching either would serve one
+  // reader's throttling to everybody behind the same cache.
+  if (!response.ok) return response;
   // What the object asked for, which already carries whatever the month is spending; the
   // configured lifetime is the floor under it and the answer when it says nothing.
   const asks = Number(response.headers.get("x-ttl"));
@@ -63,7 +85,8 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/ws") return tape(env).fetch(request);
+    // The socket is an object request like any other, and one nothing caches.
+    if (url.pathname === "/ws") return (await throttled(env, request)) ? tooMany() : tape(env).fetch(request);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 
     const response = await answer(request, env, ctx, url);

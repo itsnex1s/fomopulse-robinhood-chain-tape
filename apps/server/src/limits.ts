@@ -53,6 +53,8 @@ export interface Limits {
     cursorSeconds: number;
     /** The row counts an answer may be asked for, ascending; anything else is rounded up. */
     limitSteps: number[];
+    /** Times one address may reach the object in a minute; the platform enforces it per colo. */
+    objectRequestsPerMinute: number;
   };
   budget: { rowsPerMonth: number; maxHold: number; warmupSeconds: number };
 }
@@ -106,6 +108,8 @@ export function validateLimits(given: typeof limitsJson): Limits {
     if (i > 0 && step <= steps[i - 1]!) invalid(`cache.limitSteps[${i}] is ${step}, not past the step before it`);
   });
   if (given.cache.cursorSeconds <= 0) invalid("cache.cursorSeconds is not a positive number of seconds");
+  if (!Number.isInteger(given.cache.objectRequestsPerMinute) || given.cache.objectRequestsPerMinute <= 0)
+    invalid("cache.objectRequestsPerMinute is not a whole number of requests");
   if (given.pace.booksMaxSeconds < given.pace.booksMinSeconds)
     invalid("pace.booksMaxSeconds is below pace.booksMinSeconds");
   if (given.pace.passBudgetSeconds >= given.pace.passSeconds)
@@ -127,6 +131,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
       edge: given.cache.edge,
       cursorSeconds: given.cache.cursorSeconds,
       limitSteps: steps,
+      objectRequestsPerMinute: given.cache.objectRequestsPerMinute,
     },
     budget: given.budget,
   };
