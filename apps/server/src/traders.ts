@@ -16,6 +16,7 @@ import {
   tapeStats,
 } from "./db.ts";
 import { FomoError, leaderboard, WINDOWS } from "./fomo.ts";
+import { limits, ms } from "./limits.ts";
 import { log } from "./log.ts";
 import { nameBags, quoteBags } from "./prices/bags.ts";
 import { hasSession } from "./privy.ts";
@@ -87,7 +88,7 @@ let failures = 0;
  * itself accepted — the session is fine and the caller is not welcome — so nothing we do
  * between now and then changes the answer.
  */
-const REFUSED_MS = 6 * 3_600_000;
+const REFUSED_MS = ms(limits.pace.tradersRefusedSeconds);
 /**
  * When it is worth asking again, and what was said last time. Kept in the database as well as
  * in memory: a deploy or an eviction replaces the object, and a stand-down that starts over
@@ -140,8 +141,10 @@ export const retryInterval = (
   if (refusedForMs > 0) return Math.max(refusedForMs, regularMs);
   return answered ? regularMs : Math.min(regularMs, coldMs * 2 ** failed);
 };
-export const traderInterval = (regularMs = 10 * 60_000, coldMs = 60_000): number =>
-  retryInterval(regularMs, coldMs, ranked(), failures, Math.max(0, refused().until - Date.now()));
+export const traderInterval = (
+  regularMs = ms(limits.pace.tradersSeconds),
+  coldMs = ms(limits.pace.tradersColdSeconds),
+): number => retryInterval(regularMs, coldMs, ranked(), failures, Math.max(0, refused().until - Date.now()));
 
 /**
  * Pull the leaderboard for the avatars on it. All four windows, because each lists a
@@ -206,11 +209,11 @@ export async function maintain(): Promise<void> {
  * arrived just now is not a hex string for ten minutes. Logged, never thrown: a rejection out
  * of the tick would end the loop with it.
  */
-export function startTraders(minutes = 10): void {
+export function startTraders(): void {
   if (!hasSession()) log.warn("no fomo session is deployed; trader PnL and avatars stay as last stored");
   const tick = async () => {
     await maintain().catch((error) => log.error("traders", error));
-    setTimeout(tick, traderInterval(minutes * 60_000));
+    setTimeout(tick, traderInterval());
   };
   void tick();
 }

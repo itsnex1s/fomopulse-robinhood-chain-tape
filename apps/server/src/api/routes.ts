@@ -1,12 +1,14 @@
 import { Hono } from "hono";
 import { chainConfig, env, wallets } from "../config.ts";
-import { counts, getMeta, overview, tape } from "../db.ts";
+import { counts, getMeta, overview, positionsCount, tape } from "../db.ts";
 import { cursor } from "../ingest/cursor.ts";
 import { latencyMs, latencySummary } from "../ingest/lag.ts";
+import { limits, ms } from "../limits.ts";
 import { describe, log } from "../log.ts";
 import { sessionState } from "../privy.ts";
 import { bagList, leaderboardState, ranking } from "../traders.ts";
-import { since } from "../window.ts";
+import { since, WINDOW_SECONDS } from "../window.ts";
+import { budget, pressure, spend } from "./budget.ts";
 import { handleOf, toFill } from "./fills.ts";
 import type { Overview, Status } from "./types.ts";
 
@@ -31,40 +33,49 @@ function memo<T>(ttlMs: number | ((key: string) => number), compute: (key: strin
 
 /**
  * How long an answer may be served from memory, by the window it covers. A window is a claim
- * about how much has to change before the number does: five seconds of the last hour is most
- * of what the reader is looking at, and five seconds of all time is nothing at all. The
- * all-time readout was worked out afresh twelve times a minute for an answer that moves in
- * the fourth decimal place, and it is the most expensive of the three to work out.
+ * about how much has to change before the answer does: five seconds of the last hour is most
+ * of what the reader is looking at, and five seconds of all time is nothing at all.
  *
- * Held under what the client asks for, never over it. A cache that outlives the poll behind
- * it stops saving anything — the work was already down to one pass per lifetime — and only
- * makes one reader's page slower than it looks.
+ * The two ladders and everything else this file paces by live in config/limits.json, with the
+ * reasoning beside them; `cache.counted` is the readout, `cache.marked` the two pages carrying
+ * positions priced at the feed. Neither is ever held longer than the poll behind it.
  */
-export const COUNTED: Record<string, number> = {
-  "1h": 5_000,
-  "24h": 15_000,
-  "7d": 60_000,
-  "30d": 120_000,
-  all: 300_000,
-};
-/** The two pages that carry positions marked at the feed's price. Their own poll is every two
- *  minutes, so half of that: a single reader is never more than one cycle behind, and a
- *  hundred of them still land on two passes a cycle instead of a hundred. */
-export const MARKED: Record<string, number> = { "1h": 5_000, "24h": 15_000, "7d": 30_000, "30d": 60_000, all: 60_000 };
+const asMs = (ladder: Record<string, number>): Record<string, number> =>
+  Object.fromEntries(Object.entries(ladder).map(([window, seconds]) => [window, ms(seconds)]));
+export const COUNTED = asMs(limits.cache.counted);
+export const MARKED = asMs(limits.cache.marked);
 /** Every key here opens with the window, whatever else it carries. */
 export const ttlBy =
   (ladder: Record<string, number>) =>
   (key: string): number =>
-    ladder[key.split("|")[0] ?? ""] ?? 15_000;
+    (ladder[key.split("|")[0] ?? ""] ?? 15_000) * pressure();
 
 /** The tape's own totals: a running count over every fill, and the first one on it. Neither
  *  is read closely enough to be worth a scan of the table twelve times a minute. */
-const totals = memo(30_000, () => counts());
+const totals = memo(ms(limits.cache.totalsSeconds), () => {
+  const row = counts();
+  spend(row.trades);
+  return row;
+});
+
+/**
+ * Roughly how many fills a window holds, for pricing a read rather than answering one: the
+ * tape's own count, times the share of its life the window covers. A window wider than the
+ * tape is the whole tape, and a tape with one fill on it is one fill.
+ */
+function fillsIn(window: string): number {
+  const { trades, first_ts, last_ts } = totals();
+  const span = last_ts !== null && first_ts !== null ? Math.max(1, last_ts - first_ts) : 1;
+  const seconds = WINDOW_SECONDS[window as keyof typeof WINDOW_SECONDS] ?? span;
+  return Math.round(trades * Math.min(1, seconds / span));
+}
 
 /** The window in a line, as the original's readout has it: volume, buys against sells, breadth, pace, the biggest buy. */
 const overviewFor = memo(ttlBy(COUNTED), (window): Overview => {
   const now = Math.floor(Date.now() / 1000);
   const o = overview(since(window), now);
+  // Exactly what it walked: the window's own fills are both the answer and the cost.
+  spend(o.fills);
   const big = o.biggest_buy;
   return {
     window,
@@ -118,6 +129,9 @@ const status = memo(5_000, (window): Status => {
     overview: overviewFor(window),
     // Whose numbers are fomo's, and whether they are still arriving.
     leaderboard: leaderboardState(),
+    // What the month is on course to walk, and whether the answers are being held longer
+    // for it: a bill is better read here than at the end of the month.
+    budget: budget(),
   };
 });
 
@@ -133,6 +147,9 @@ const tapeFor = memo(1_000, (key) => {
   // The dusting goes in the query; whether a token is a stock is decided in `toFill`, so
   // that one filter still runs here — and only then is it worth reading twice the rows.
   const rows = tape(since(window), stocks ? limit : limit * 2, dust, before);
+  // The page itself, and the two subqueries each row carries — the wallet's first buy of the
+  // token, and who else bought it in the hour before — which walk an index apiece.
+  spend(rows.length * 3);
   return rows
     .map(toFill)
     .filter((f) => stocks || f.is_stock === 0)
@@ -146,11 +163,16 @@ const tapeFor = memo(1_000, (key) => {
 const tradersFor = memo(ttlBy(MARKED), (key) => {
   const [window, limitText] = key.split("|");
   const resolved = window ?? "24h";
+  // A grouped pass over the window's fills, plus one row per wallet from the books.
+  spend(fillsIn(resolved) + wallets.length);
   return ranking(since(resolved), resolved, Math.min(Number(limitText) || 50, 300));
 });
 
 const bagsFor = memo(ttlBy(MARKED), (key) => {
   const [window, limitText] = key.split("|");
+  // The positions, grouped by token four ways over — the bag, its largest holder, the
+  // token's last fill and its first buy — and the window's own fills for the flow columns.
+  spend(positionsCount() * 4 + fillsIn(window ?? "all"));
   return bagList(since(window), Math.min(Number(limitText) || 60, 200));
 });
 
@@ -176,6 +198,9 @@ export const api = new Hono()
     ),
   )
   .get("/api/overview", (c) => c.json(overviewFor(c.req.query("window") ?? "24h")))
+  // Every number this tape paces itself by, as it stands, next to what the month has spent
+  // against it. Nothing here is a secret and all of it decides what the pages show.
+  .get("/api/limits", (c) => c.json({ limits, budget: budget() }))
   .get("/api/traders", (c) =>
     c.json(tradersFor([c.req.query("window") ?? "24h", c.req.query("limit") ?? "50"].join("|"))),
   )

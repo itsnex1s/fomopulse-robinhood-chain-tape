@@ -1,39 +1,32 @@
 import { DurableObject } from "cloudflare:workers";
+import { limits, ms } from "../../server/src/limits.ts";
 import { log } from "../../server/src/log.ts";
 import type { Env } from "./env.ts";
 import { bytesUsed, use } from "./sqlite.ts";
 
-/** The alarm is the object's pulse: it prices, sweeps and resubscribes, and it is also
- *  what wakes the object again after the platform has put it away. Milliseconds. */
-const TICK_MS = 15_000;
-/** Sweep and quote every 2 minutes, ask fomo every 10, in ms. Read off the clock rather
- *  than counted in ticks: the platform may put the object away between two alarms, and a
- *  counter that starts at zero again every time would never reach the tenth minute. */
-const SWEEP_MS = 2 * 60_000;
-const TRADERS_MS = 10 * 60_000;
-/** How often to walk the books, in ms: one sequential pass over the whole tape, so it belongs
- *  on a clock rather than on a request. The floor, rather than the interval — the pass is
- *  spaced off its own cost, so it does not grow into the clock as the tape does. */
-const BOOKS_MS = 10 * 60_000;
-/** And how far apart it may end up: the pages say how old their numbers are. */
-const BOOKS_MAX_MS = 60 * 60_000;
-/** Drop what is past its horizon four times a day, in ms: the horizons are counted in
- *  days, so anything more often is the same delete over a range that has not moved. */
-const PRUNE_MS = 6 * 3_600_000;
-/** How long an object with no leaderboard at all waits before asking again, in ms.
- *  Doubles after every failed read, so a dead token is not asked four times a minute. */
-const TRADERS_COLD_MS = 60_000;
-/** How long the tape waits for an alarm before the cron does the tick itself, in ms.
- *  Alarms can be lost outright, and three missed ticks is past any ordinary delay. */
+/**
+ * Every clock this object runs on comes from config/limits.json, where the reasoning sits
+ * beside the number. Read off the wall clock rather than counted in ticks: the platform may
+ * put the object away between two alarms, and a counter starting at zero again every time
+ * would never reach the tenth minute.
+ */
+const TICK_MS = ms(limits.pace.tickSeconds);
+const SWEEP_MS = ms(limits.pace.sweepSeconds);
+const TRADERS_MS = ms(limits.pace.tradersSeconds);
+const TRADERS_COLD_MS = ms(limits.pace.tradersColdSeconds);
+/** The floor of the books walk, rather than its interval: the pass is spaced off its own cost
+ *  between these two, so it does not grow into the clock as the tape does. */
+const BOOKS_MS = ms(limits.pace.booksMinSeconds);
+const BOOKS_MAX_MS = ms(limits.pace.booksMaxSeconds);
+const PRUNE_MS = ms(limits.pace.pruneSeconds);
+/** How much of a pass may be spent before the sweep is left for the next one, and how long the
+ *  whole pass may run: work that outlives the request that started it is cut off by the platform. */
+const BUDGET_MS = ms(limits.pace.passBudgetSeconds);
+const PASS_MS = ms(limits.pace.passSeconds);
+/** Both counted in ticks rather than configured, because both are about the alarm and not about
+ *  pace: three missed deliveries is past any ordinary delay, and a pass still going after four
+ *  is not coming back, so the slot goes to the next caller rather than holding a dead promise. */
 const STALE_MS = 3 * TICK_MS;
-/** How much of a pass may be spent, in ms, before the sweep is left for the next one:
- *  work that outlives the request that started it is cut off by the platform. */
-const BUDGET_MS = 20_000;
-/** The whole pass, end to end, in ms. Every step runs against what is left of it, and it
- *  is shorter than the deadline that frees the slot so two passes never overlap. */
-const PASS_MS = 45_000;
-/** A pass still going after this many ms is not coming back, and the slot is given to the
- *  next caller rather than left holding a dead promise. */
 const TICK_DEADLINE_MS = 4 * TICK_MS;
 
 type App = typeof import("./app.ts");

@@ -1,5 +1,6 @@
 import type { Address } from "viem";
 import { chainConfig } from "../config.ts";
+import { limits } from "../limits.ts";
 
 const ENDPOINT = "https://api.dexscreener.com/tokens/v1";
 
@@ -10,7 +11,7 @@ const PER_CALL = 30;
  * first, so a token's round trip is the day's token count divided by this, times the interval
  * between passes; at 180 it costs 24 of the 300 calls a minute the endpoint allows.
  */
-export const BATCH = 180;
+export const BATCH = limits.feed.batch;
 /**
  * A feed that accepts the connection and then says nothing would otherwise hang the whole
  * pass: the tick awaits the quotes before it catches up, and inside a Durable Object a
@@ -22,7 +23,7 @@ const TIMEOUT_MS = 10_000;
  * dust that crossed it, at any number at all. A token below the floor is left unpriced,
  * which the tape already shows as a dash.
  */
-export const MIN_LIQUIDITY = 1_000;
+export const MIN_LIQUIDITY = limits.feed.minLiquidityUsd;
 
 /**
  * The chains fomo reports bags on, as DexScreener names them. The tracked chain adds

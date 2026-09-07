@@ -3,11 +3,13 @@ import { onLogs } from "./ingest/receipt.ts";
 import type { StoredFill } from "./ingest/reconstruct.ts";
 import { catchUp, head, mend, watch } from "./ingest/subscribe.ts";
 import { sweeper, unaccounted } from "./ingest/sweep.ts";
+import { limits, ms } from "./limits.ts";
 import { log } from "./log.ts";
 import { sleep } from "./sleep.ts";
 
-/** How often the recent past is re-read for logs the socket dropped; the range is ingest/sweep.ts's. */
-const SWEEP_MS = 120_000;
+/** How often the recent past is re-read for logs the socket dropped; the range is ingest/sweep.ts's.
+ *  The same clock the object sweeps on, so the two runtimes do not drift apart. */
+const SWEEP_MS = ms(limits.pace.sweepSeconds);
 /** A block number the heartbeat brought back this recently stands in for an HTTP call. */
 const HEAD_FRESH_MS = 60_000;
 /** A socket that lived this long resets the reconnect backoff. */

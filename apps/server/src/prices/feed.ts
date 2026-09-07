@@ -8,6 +8,7 @@ import {
   tokensToPrice,
   unpricedFills,
 } from "../db.ts";
+import { limits, ms } from "../limits.ts";
 import { log } from "../log.ts";
 import { BATCH, fetchQuotes } from "./dexscreener.ts";
 import { FLOATING, noteEthUsd } from "./eth.ts";
@@ -57,10 +58,10 @@ export async function refreshPrices(onRepriced: (txs: string[]) => void): Promis
 }
 
 /** DexScreener allows 300 calls a minute; one call every 15s uses 0.3% of that. */
-export function startPrices(onRepriced: (txs: string[]) => void, seconds = 15): void {
+export function startPrices(onRepriced: (txs: string[]) => void, seconds = limits.pace.quoteSeconds): void {
   const tick = async () => {
     await refreshPrices(onRepriced).catch((error) => log.error("prices", error));
-    setTimeout(tick, seconds * 1_000);
+    setTimeout(tick, ms(seconds));
   };
   void tick();
 }

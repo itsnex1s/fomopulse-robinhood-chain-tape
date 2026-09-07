@@ -8,6 +8,7 @@ import {
   saveStats,
 } from "./db/stats.ts";
 import { getMeta, loadPrices, RESIDUE, setMeta } from "./db.ts";
+import { limits, ms } from "./limits.ts";
 import { log } from "./log.ts";
 import { WINDOW_SECONDS } from "./window.ts";
 
@@ -223,7 +224,7 @@ const WALK_MS = "books:ms";
  * pass moves to every twenty minutes, and somewhere past two million the ceiling takes over.
  * Rows read, not time, is what this is spent on — the object is awake either way.
  */
-const SHARE = 240;
+const SHARE = limits.pace.booksShare;
 /** The floor is what the books were on before this: often enough that a rank on screen is
  *  from this ten minutes. The ceiling is what a reader will forgive, and the page says how
  *  old its numbers are either way. */
@@ -231,18 +232,20 @@ export const booksSpacing = (lastMs: number, floorMs: number, ceilingMs: number)
   Math.min(ceilingMs, Math.max(floorMs, lastMs * SHARE));
 
 /** The same, off the last walk's own measure; the first walk of a database has none. */
-export const booksInterval = (floorMs = 10 * 60_000, ceilingMs = 60 * 60_000): number =>
-  booksSpacing(Number(getMeta(WALK_MS) ?? 0), floorMs, ceilingMs);
+export const booksInterval = (
+  floorMs = ms(limits.pace.booksMinSeconds),
+  ceilingMs = ms(limits.pace.booksMaxSeconds),
+): number => booksSpacing(Number(getMeta(WALK_MS) ?? 0), floorMs, ceilingMs);
 
 /** The same walk on a clock, for the process that is its own tape rather than an object. */
-export function startBooks(minutes = 10): void {
+export function startBooks(): void {
   const tick = () => {
     try {
       rebuildStats();
     } catch (error) {
       log.error("books", error);
     }
-    setTimeout(tick, booksInterval(minutes * 60_000));
+    setTimeout(tick, booksInterval());
   };
   tick();
 }

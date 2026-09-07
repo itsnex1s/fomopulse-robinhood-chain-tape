@@ -3,11 +3,12 @@
  * logs that did arrive, so nothing would look at that block again. The recent past is re-read on a
  * timer: a stored receipt costs no call and a written fill is dropped by its primary key.
  */
+import { limits } from "../limits.ts";
 
-/** How far back a sweep reaches when there is no earlier sweep to start from: about 10 minutes. */
-export const SWEEP_BLOCKS = 6_000n;
-/** Overlap with the last sweep, for a receipt that was still in flight at its tip: about a minute. */
-export const SWEEP_MARGIN = 600n;
+/** How far back a sweep reaches when there is no earlier sweep to start from, and how much it
+ *  overlaps the last one for a receipt still in flight at its tip. Blocks, from the limits. */
+export const SWEEP_BLOCKS = BigInt(limits.sweep.blocks);
+export const SWEEP_MARGIN = BigInt(limits.sweep.marginBlocks);
 
 export function sweeper(window = SWEEP_BLOCKS, margin = SWEEP_MARGIN) {
   let sweptTo: bigint | undefined;

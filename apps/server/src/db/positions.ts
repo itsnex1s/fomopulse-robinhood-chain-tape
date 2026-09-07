@@ -25,6 +25,7 @@ const READ = `SELECT wallet, token,
   FROM fills WHERE dust = 0`;
 
 const stmt = {
+  count: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM positions"),
   dropAll: db.query("DELETE FROM positions"),
   dropToken: db.query("DELETE FROM positions WHERE token = ?"),
   dropOne: db.query("DELETE FROM positions WHERE token = ?1 AND wallet = ?2"),
@@ -86,4 +87,12 @@ export function positionsReady(): boolean {
   }
   rebuildPositions();
   return true;
+}
+
+/** How many rows the positions table holds, which is what every bag read walks. Kept for
+ *  half a minute: it is asked for to price a read, not to answer one. */
+let counted: { at: number; n: number } | undefined;
+export function positionsCount(now = Date.now()): number {
+  if (counted === undefined || now - counted.at > 30_000) counted = { at: now, n: stmt.count.get()?.n ?? 0 };
+  return counted.n;
 }

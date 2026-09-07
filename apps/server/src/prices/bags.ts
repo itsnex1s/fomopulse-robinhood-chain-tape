@@ -2,6 +2,7 @@ import type { Address } from "viem";
 import { chainConfig } from "../config.ts";
 import { namelessTokens, recordBagHistory, savePrice, tapeTokens, unnamedBags } from "../db.ts";
 import { readTokens } from "../ingest/resolve.ts";
+import { limits, ms } from "../limits.ts";
 import { log } from "../log.ts";
 import { BATCH, fetchQuotes } from "./dexscreener.ts";
 
@@ -34,11 +35,11 @@ export async function nameBags(): Promise<void> {
   await readTokens(wanted).catch((error) => log.error("tokens", error));
 }
 
-/** Quotes move faster than anything else on the page: every three minutes, one request. */
-export function startBagQuotes(minutes = 3): void {
+/** Quotes move faster than anything else on the page; `pace.bagQuoteSeconds` says how often. */
+export function startBagQuotes(seconds = limits.pace.bagQuoteSeconds): void {
   const tick = async () => {
     await quoteBags().catch((error) => log.error("bag quotes", error));
-    setTimeout(tick, minutes * 60_000);
+    setTimeout(tick, ms(seconds));
   };
   void tick();
 }

@@ -51,7 +51,7 @@ the same queries run unchanged in both.
       server/test/       bun tests and their fixtures
       web/src/           the SPA
       worker/src/        the Cloudflare edge and the Durable Object
-    config/              wallets, chain, fomo, stock tokens
+    config/              wallets, chain, fomo, stock tokens, operational limits
     scripts/             one-off and operational tools
 
 ## Runtime shape
@@ -68,12 +68,14 @@ Object: one alarm every fifteen seconds is its pulse, and it prices, catches up,
 fomo on clocks kept in its own storage. `apps/worker/src/index.ts` is the edge in front of it,
 serving the built SPA, forwarding `/ws`, and answering `/api/*` out of the colo cache.
 
-**API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/alive`,
+**API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/limits`, `/api/alive`,
 plus `/ws` for the live push. All take `window` and most take `limit`; the tape also takes
 `stocks`, `dust` and a `before`/`beforeId` cursor. `api/types.ts` is the single definition of every
 response, re-exported type-only by the web app, so a renamed field fails the typecheck on both sides.
 
-**Tables.** `receipts` and `transfers` hold what the chain said; `fills` is the tape; `tokens`,
+**Tables.** `receipts` holds what the chain said, its ERC-20 transfers packed into one value on
+the row rather than a row apiece — nothing queries them, and a row apiece was seven eighths of
+everything this tape writes; `fills` is the tape; `tokens`,
 `addresses` and `prices` are lookups; `trader_stats` is the books, walked from the fills, and
 `bag_hours` the hourly snapshot the bag deltas are read against; `traders` holds the cards fomo
 shows; `meta` is the key-value store the resume cursor and the fomo session live in.
@@ -93,6 +95,12 @@ exports. A module with no exports listed is an entry point that runs on import.
 
 ### apps/server/src — core
 
+    0  limits.ts        limits ms Limits Ladder validateLimits
+                        Every operational number in one place, validated on the way in: retention,
+                        the job clocks, the sweep range, what the feed is asked for, how long an
+                        answer is held, what a month may spend. Served at /api/limits. The
+                        constants that decide what a fill IS are not here — they live beside the
+                        rule they belong to.
     1  config.ts        chain chainConfig configure wallets fomoConfig QUOTE_TOKENS WALLET_LIST
                         WALLET_SET WALLET_TOPICS Wallet QuoteToken Secrets
                         Validated chain, fomo and wallet config; env settings; the three RPC clients.
@@ -157,12 +165,20 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The entire DDL. No migrations; a mismatched database is deleted.
     24 meta.ts          getMeta setMeta
                         Key-value rows that survive a restart: the cursor, the source, the session.
+    24b logs.ts         packTransfers unpackTransfers carryTransfersOntoReceipts
+                        How a receipt's transfers are packed onto it, and how a database from
+                        before that carries its rows across before the old table is dropped.
     25 receipts.ts      saveReceipt getReceipt allReceipts transfersOf dateReceipt saveToken
                         saveKind loadDecimals loadKinds namelessTokens receiptCounts StoredReceipt
                         Receipts, transfers, token decimals and names, address kinds.
     26 fills.ts         insertFills tape tapeOfTx tapeStats overview counts deleteFill stampSupply
                         TapeRow TapeCursor OverviewRow
                         The tape table: inserts, the dust pardon, the tape and overview reads.
+    26b positions.ts     rebuildPositions refreshPositions refreshHeld positionsReady positionsCount
+                        Net position per wallet and token, held as a table instead of derived on
+                        every read. Written from the fills: per wallet when a fill lands, per
+                        token when a pardon or a price reaches all of it, in full after a prune
+                        or a replay. Read this before touching a bag.
     27 prices.ts        savePrice loadPrices tokensToPrice unpricedFills setEstimate dropThinPrices
                         StoredQuote
                         Feed quotes per token, and the repricing of fills that arrived unpriced.
@@ -195,8 +211,12 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The entire wire contract. No imports, by design.
     37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
+    37b budget.ts       spend projected pressure stretch budget BUDGET MAX_STRETCH resetBudget
+                        What the month is on course to walk, said by the answers themselves, and
+                        how much longer to hold them for it.
     38 routes.ts        api
-                        The Hono app: the six GET routes, and the in-process memo in front of them.
+                        The Hono app: the seven GET routes, and the in-process memo in front of
+                        them, whose lifetimes come from config/limits.json.
     39 ws.ts            websocket broadcast
                         Bun's pub/sub socket handlers.
     40 static.ts        site

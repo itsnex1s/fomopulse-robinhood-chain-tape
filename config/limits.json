@@ -1,0 +1,56 @@
+{
+  "$comment": "Operational limits. Everything here is a judgement about cost, freshness or how long to keep something — turn it and nothing about what a fill IS changes. The constants that decide that (the fee ratio, the dust threshold, the rounding residue, the transfer topic) stay in the code beside the rule they belong to, because changing one of those changes the tape rather than the bill. Units are in the names. Served as-is at /api/limits. Also not here: network plumbing — socket heartbeats, request timeouts, reconnect backoff, page sizes bounded by the object's 128 MB — which is about whether the tape works, not about what it costs.",
+
+  "retention": {
+    "$comment": "Days. The Durable Object stops at ten gigabytes. Fills are the tape; receipts are only the evidence a rules change is replayed from, and the widest window the API serves is thirty days.",
+    "fillDays": 90,
+    "receiptDays": 14
+  },
+
+  "pace": {
+    "$comment": "Seconds between the jobs the object runs on its own clock. The books are spaced off their own last measure between booksMinSeconds and booksMaxSeconds — see booksShare. A pass stops starting new work after passBudgetSeconds and is given up on entirely after passSeconds, which is shorter than the deadline that frees the slot so two passes never overlap.",
+    "tickSeconds": 15,
+    "sweepSeconds": 120,
+    "quoteSeconds": 15,
+    "bagQuoteSeconds": 180,
+    "tradersSeconds": 600,
+    "tradersColdSeconds": 60,
+    "tradersRefusedSeconds": 21600,
+    "booksMinSeconds": 600,
+    "booksMaxSeconds": 3600,
+    "booksShare": 240,
+    "pruneSeconds": 21600,
+    "passBudgetSeconds": 20,
+    "passSeconds": 45,
+    "heldSeconds": 1800
+  },
+
+  "sweep": {
+    "$comment": "Blocks. The chain runs at about thirty blocks a second, so six thousand is roughly three minutes of it re-read, with a margin of overlap for a receipt still in flight at the last sweep's tip.",
+    "blocks": 6000,
+    "marginBlocks": 600
+  },
+
+  "feed": {
+    "$comment": "DexScreener. batch is tokens quoted per pass across as many calls as that takes, stalest first; at 180 it costs 24 of the 300 calls a minute the endpoint allows. Under minLiquidityUsd a quote is not a price but the last dust that crossed an empty pool. The two ages bound how late a fill may still be given a price and a supply from a quote that arrives after it.",
+    "batch": 180,
+    "minLiquidityUsd": 1000,
+    "estimateMaxAgeSeconds": 3600,
+    "supplyMaxAgeSeconds": 3600
+  },
+
+  "cache": {
+    "$comment": "Seconds an answer may be served from memory, by the window it covers. Never longer than the poll behind it: past that the work is already one pass per lifetime and the only thing a longer hold buys is a page slower than it looks. 'counted' is the readout, 'marked' the two pages carrying positions priced at the feed, 'edge' what the colo in front of the object holds.",
+    "counted": { "1h": 5, "24h": 15, "7d": 60, "30d": 120, "all": 300 },
+    "marked": { "1h": 5, "24h": 15, "7d": 30, "30d": 60, "all": 60 },
+    "totalsSeconds": 30,
+    "edge": { "tape": 1, "status": 12, "overview": 12, "traders": 90, "bags": 90, "discover": 90, "limits": 300 }
+  },
+
+  "budget": {
+    "$comment": "Rows a month may walk before answers start being held longer, and the most that hold may be stretched. The plan includes twenty-five billion; nothing is budgeted for overage, because the writes are what overage is for.",
+    "rowsPerMonth": 25000000000,
+    "maxHold": 12,
+    "warmupSeconds": 60
+  }
+}

@@ -1,5 +1,6 @@
 import type { Fill, Priced, Side } from "../api/types.ts";
 import type { StoredFill } from "../ingest/reconstruct.ts";
+import { limits } from "../limits.ts";
 import { noteHeld } from "./bags.ts";
 import { db } from "./connection.ts";
 import { refreshHeld, refreshPositions } from "./positions.ts";
@@ -7,7 +8,7 @@ import { refreshHeld, refreshPositions } from "./positions.ts";
 /** The tape itself — one row per fill — and the reads the screen is built from. */
 /** Seconds: how old a fill can be and still have a supply written onto it. Past this the feed's supply is no
  *  longer a reading of the moment the fill landed, and the row is better off falling back. */
-const SUPPLY_MAX_AGE = 3_600;
+const SUPPLY_MAX_AGE = limits.feed.supplyMaxAgeSeconds;
 
 const stmt = {
   insertFill: db.query(

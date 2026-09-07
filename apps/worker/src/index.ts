@@ -3,24 +3,20 @@
  * and `/api/*` answered from the cache of the colo it arrived in, which is what keeps a
  * thousand polling readers down to one request per colo per cache window.
  */
+import { limits } from "../../server/src/limits.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
 
 /**
- * How long an answer may be reused, in seconds. Set just under the interval the client
- * polls at, so the object is asked once per window however many readers there are.
+ * How long an answer may be reused at the edge, in seconds, from config/limits.json. Set just
+ * under the interval the client polls at, so the object is asked once per colo per window
+ * however many readers there are.
  */
-const TTL: [prefix: string, seconds: number][] = [
-  // Fetched on a window change, not on a timer, and the socket carries the rest.
-  ["/api/tape", 1],
-  // Polled every 15 s, and it carries the overview line as well.
-  ["/api/status", 12],
-  ["/api/overview", 12],
-  // fomo is asked every ten minutes and the bag quotes every two; polled every two minutes.
-  ["/api/traders", 90],
-  ["/api/bags", 90],
-];
+const TTL: [prefix: string, seconds: number][] = Object.entries(limits.cache.edge).map(([name, seconds]) => [
+  `/api/${name}`,
+  seconds,
+]);
 
 /**
  * One object, named. The hint pins it to eastern North America, next to the RPC provider

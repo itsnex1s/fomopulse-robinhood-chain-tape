@@ -106,6 +106,12 @@ export interface Status {
   dexscreener_slug: string;
   /** The fomo side: when the cards last arrived, and why they stopped if they have. */
   leaderboard: { updated_at: number | null; refused: string | null; asking_again_in: number | null };
+  /**
+   * What the month is on course to walk against what the plan includes, and how much longer
+   * answers are being held because of it — `holding` is 1 while there is room. Read off what
+   * each answer says it walked, not metered by the platform.
+   */
+  budget: { rows_walked: number; rows_projected: number; budget: number; holding: number };
 }
 
 /** `GET /api/traders`: what a wallet did on this tape in the window, and what its books made. */
@@ -187,3 +193,4 @@ export interface Bag {
   value_then: number | null;
   holders_list: { handle: string; value: number; pnl: number | null; avatar_url: string | null }[];
 }
+

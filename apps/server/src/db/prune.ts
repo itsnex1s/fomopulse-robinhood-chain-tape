@@ -1,12 +1,11 @@
+import { limits, ms } from "../limits.ts";
 import { log } from "../log.ts";
 import { db } from "./connection.ts";
 import { rebuildPositions } from "./positions.ts";
 
-/** Days. A Durable Object's SQLite stops at ten gigabytes, so nothing is kept forever. The longest window the
- *  API serves is thirty days, which is what fills are held against; the receipts are only the evidence a
- *  rebuild replays, and they are the bulk of the bytes. */
-export const FILL_DAYS = 90;
-export const RECEIPT_DAYS = 14;
+/** Days, from config/limits.json: a Durable Object's SQLite stops at ten gigabytes, so nothing is
+ *  kept forever. Re-exported because the horizons are what this module is about. */
+export const { fillDays: FILL_DAYS, receiptDays: RECEIPT_DAYS } = limits.retention;
 
 const stmt = {
   // A receipt whose timestamp never arrived is left alone: it is not old, it is unknown. Its
@@ -39,15 +38,15 @@ export function pruneOnce(): void {
     log.info(`pruned ${gone.receipts} receipts past ${RECEIPT_DAYS} days and ${gone.fills} fills past ${FILL_DAYS}`);
 }
 
-/** The horizons are days; reading them every six hours is often enough to hold the line. */
-export function startPrune(hours = 6): void {
+/** The horizons are days, so the pass runs on the hours-apart clock the limits give it. */
+export function startPrune(seconds = limits.pace.pruneSeconds): void {
   const tick = () => {
     try {
       pruneOnce();
     } catch (error) {
       log.error("prune", error);
     }
-    setTimeout(tick, hours * 3_600_000);
+    setTimeout(tick, ms(seconds));
   };
   tick();
 }

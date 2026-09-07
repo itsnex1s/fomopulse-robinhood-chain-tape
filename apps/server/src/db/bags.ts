@@ -1,4 +1,5 @@
 import type { Bag } from "../api/types.ts";
+import { limits, ms } from "../limits.ts";
 import { db } from "./connection.ts";
 import { getMeta, setMeta } from "./meta.ts";
 import { positionsReady } from "./positions.ts";
@@ -130,17 +131,17 @@ export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
 
 /** Tokens the tracked wallets hold or moved lately: position columns from net fills, flow
  *  columns from the window. */
-export const tapeBags = (sinceTs: number, limit: number): BagRow[] => (
-  positionsReady(), stmt.tapeBags.all(sinceTs, limit)
-);
+export function tapeBags(sinceTs: number, limit: number): BagRow[] {
+  positionsReady();
+  return stmt.tapeBags.all(sinceTs, limit);
+}
 /**
- * How long the held set is kept before it is read off the fills again. The set is a grouped
- * pass over every fill and it barely moves — a token joins it when a wallet opens a position
- * and leaves when the last one closes — while the thing the caller actually sorts by, the
- * age of the quote, is read fresh every time. Every three minutes this pass was thirty
- * full scans of the tape an hour, for a list that changes a few times a day.
+ * How long the held set is kept before it is read off the positions again. It barely moves — a
+ * token joins when a wallet opens a position and leaves when the last one closes — while the
+ * thing the caller actually sorts by, the age of the quote, is read fresh every time.
+ * `pace.heldSeconds`.
  */
-const HELD_MS = 30 * 60_000;
+const HELD_MS = ms(limits.pace.heldSeconds);
 let held: { at: number; tokens: Set<string> } | undefined;
 
 /** Tokens a tracked wallet is still long, with the age of their quote, so the feed knows
@@ -217,7 +218,10 @@ export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
   return held;
 }
 
-export const unnamedBags = (limit: number) => (positionsReady(), stmt.unnamedBags.all(limit).map((row) => row.token));
+export function unnamedBags(limit: number): string[] {
+  positionsReady();
+  return stmt.unnamedBags.all(limit).map((row) => row.token);
+}
 
 /** The hour the last snapshot was taken for, so a pass that is not the first of its hour is free. */
 const BAG_HOUR = "bags:hour";
