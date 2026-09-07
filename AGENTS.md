@@ -245,8 +245,10 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The addresses the app draws itself, which both runtimes answer with the
                         shell. Kept in step with url.ts on the web side and with the Worker's
                         run_worker_first, which a test holds it to.
-    37 fills.ts         toFill handleOf
-                        A stored tape row becomes the wire Fill; wallet to handle.
+    37 fills.ts         toFill handleOf onTape STOCK_MIN_USD
+                        A stored tape row becomes the wire Fill; wallet to handle. `onTape` is
+                        the size a tokenised stock has to clear to be a line, read by the page
+                        and by both broadcasts so the socket and the REST tape agree.
     37b budget.ts       spend walked meterRows measure measured projected pressure stretch
                         budget BUDGET MAX_STRETCH resetBudget
                         What the month is on course to walk — the storage's own count of rows

@@ -9,6 +9,14 @@ const traders = new Map(wallets.map((w) => [w.address, w]));
 /** A stored row's wallet, for the rows that name one: the handle, or the address prefix. */
 export const handleOf = (wallet: string): string => traders.get(wallet as `0x${string}`)?.handle ?? wallet.slice(0, 10);
 
+/** Under this a tokenised stock is not a line of the tape: a stock settles off fomo's own account
+ *  with no cash leg on chain, so nothing in the shape of a $5 fractional buy tells it from a credit,
+ *  and either way half a tape of them carries a third of a percent of what it moved. */
+export const STOCK_MIN_USD = 25;
+
+/** Whether a fill is worth a line. Read by the page and by the socket alike, so the two agree. */
+export const onTape = (fill: Fill): boolean => fill.is_stock === 0 || (fill.usd ?? 0) >= STOCK_MIN_USD;
+
 /** The shape robinhoodtrenches.com serves, so a client written against it works here. */
 export function toFill(row: TapeRow): Fill {
   const trader = traders.get(row.wallet as `0x${string}`);

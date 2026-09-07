@@ -161,3 +161,26 @@ test("a page continues from the cursor, and a shared second is neither repeated 
   expect(mine(older)).toEqual(page.slice(2));
   expect(new Set(mine(older)).size).toBe(mine(older).length);
 });
+
+/**
+ * Half the tape was arriving as $5 fractional buys of tokenised stocks carrying a third of a
+ * percent of what it moved. Nothing in the shape of one separates it from a credit — a stock
+ * settles off fomo's own account with no cash leg — so the tape asks how big it was instead.
+ */
+test("a tokenised stock reaches the tape only if the fill was worth a line", async () => {
+  // The registry's own address for CRM, which is what makes these rows stocks at all.
+  const crm = "0xd95B44124e475743a7589e68F3D74008A5536D44";
+  const buyer = wallets[42]!.address;
+  insertFills([
+    fill({ tx: "0xstk-small", wallet: buyer, token: crm, amount: 0.02, usd: 4.62, price: 231 }),
+    fill({ tx: "0xstk-real", wallet: buyer, token: crm, amount: 1.2, usd: 277.2, price: 231, logIndex: 1 }),
+    // Nothing priced this one, so nothing says it cleared the bar either.
+    fill({ tx: "0xstk-unpriced", wallet: buyer, token: crm, usd: null, price: null, priced: "unpriced", logIndex: 2 }),
+  ]);
+
+  // A page size no other test in this file asks for: the answers are memoised per key.
+  const rows = (await (await api.request("/api/tape?window=1h&limit=300")).json()) as Record<string, unknown>[];
+  const mine = rows.filter((r) => String(r.tx).startsWith("0xstk-"));
+  expect(mine.map((r) => r.tx)).toEqual(["0xstk-real"]);
+  expect(mine[0]).toMatchObject({ is_stock: 1, usd: 277.2 });
+});

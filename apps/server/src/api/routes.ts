@@ -10,7 +10,7 @@ import { sessionState } from "../privy.ts";
 import { bagList, leaderboardState, ranking } from "../traders.ts";
 import { since, WINDOW_SECONDS } from "../window.ts";
 import { budget, pressure, spend } from "./budget.ts";
-import { handleOf, toFill } from "./fills.ts";
+import { handleOf, onTape, toFill } from "./fills.ts";
 import type { Overview, Status } from "./types.ts";
 
 /**
@@ -145,15 +145,15 @@ const tapeFor = memo(1_000, (key) => {
   // it there is no cursor, and the read is the first page again.
   const before =
     Number(beforeTs) > 0 && Number(beforeId) > 0 ? { ts: Number(beforeTs), id: Number(beforeId) } : undefined;
-  // The dusting goes in the query; whether a token is a stock is decided in `toFill`, so
-  // that one filter still runs here — and only then is it worth reading twice the rows.
-  const rows = tape(since(window), stocks ? limit : limit * 2, dust, before);
+  // The dusting goes in the query; whether a token is a stock is decided in `toFill`, so both
+  // filters that turn on one run here — and that is why the read is twice the page.
+  const rows = tape(since(window), limit * 2, dust, before);
   // The page itself, and the two subqueries each row carries — the wallet's first buy of the
   // token, and who else bought it in the hour before — which walk an index apiece.
   spend(rows.length * 3);
   return rows
     .map(toFill)
-    .filter((f) => stocks || f.is_stock === 0)
+    .filter((f) => onTape(f) && (stocks || f.is_stock === 0))
     .slice(0, limit);
 });
 

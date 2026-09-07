@@ -4,7 +4,7 @@
  */
 
 import { measure, meterRows } from "../../server/src/api/budget.ts";
-import { toFill } from "../../server/src/api/fills.ts";
+import { onTape, toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
 import { cursor } from "../../server/src/ingest/cursor.ts";
@@ -56,7 +56,7 @@ const recent = sweeper();
 
 /** Rows are read back from the database, so the socket and the REST tape agree field for field. */
 const push = (txs: string[]): void => {
-  const rows = measure("ingest:broadcast", () => [...new Set(txs)].flatMap(tapeOfTx).map(toFill));
+  const rows = measure("ingest:broadcast", () => [...new Set(txs)].flatMap(tapeOfTx).map(toFill).filter(onTape));
   if (rows.length > 0) publish(rows);
 };
 

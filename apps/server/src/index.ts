@@ -6,7 +6,7 @@
  *   bun run ingest --from B           start from block B instead of the stored cursor
  *   bun run ingest --poll S           re-read the chain every S seconds (default 12) instead of subscribing
  */
-import { toFill } from "./api/fills.ts";
+import { onTape, toFill } from "./api/fills.ts";
 import { site } from "./api/static.ts";
 import { broadcast, websocket } from "./api/ws.ts";
 import { env, wallets } from "./config.ts";
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   // Rows are read back from the database so the socket and the REST tape agree field for field.
   const push = (txs: string[]) => {
     if (!server) return;
-    const rows = [...new Set(txs)].flatMap(tapeOfTx).map(toFill);
+    const rows = [...new Set(txs)].flatMap(tapeOfTx).map(toFill).filter(onTape);
     if (rows.length > 0) broadcast(server, rows);
   };
   const emit: Emit = (fills) => {
