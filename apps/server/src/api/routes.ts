@@ -12,14 +12,16 @@ import type { Overview, Status } from "./types.ts";
 
 /**
  * Every open tab polls the same handful of queries, so each answer is computed at most once
- * per `ttlMs` per distinct query and the rest is served from memory.
+ * per `ttlMs` per distinct query and the rest is served from memory. The lifetime may be a
+ * function of the key, which is how a window pays for itself: see `byWindow`.
  */
-function memo<T>(ttlMs: number, compute: (key: string) => T) {
+function memo<T>(ttlMs: number | ((key: string) => number), compute: (key: string) => T) {
   const cache = new Map<string, { at: number; value: T }>();
+  const lifetime = typeof ttlMs === "function" ? ttlMs : () => ttlMs;
   return (key = ""): T => {
     const hit = cache.get(key);
     const now = Date.now();
-    if (hit && now - hit.at < ttlMs) return hit.value;
+    if (hit && now - hit.at < lifetime(key)) return hit.value;
     const value = compute(key);
     cache.set(key, { at: now, value });
     if (cache.size > 64) cache.delete(cache.keys().next().value!);
@@ -27,8 +29,40 @@ function memo<T>(ttlMs: number, compute: (key: string) => T) {
   };
 }
 
+/**
+ * How long an answer may be served from memory, by the window it covers. A window is a claim
+ * about how much has to change before the number does: five seconds of the last hour is most
+ * of what the reader is looking at, and five seconds of all time is nothing at all. The
+ * all-time readout was worked out afresh twelve times a minute for an answer that moves in
+ * the fourth decimal place, and it is the most expensive of the three to work out.
+ *
+ * Held under what the client asks for, never over it. A cache that outlives the poll behind
+ * it stops saving anything — the work was already down to one pass per lifetime — and only
+ * makes one reader's page slower than it looks.
+ */
+export const COUNTED: Record<string, number> = {
+  "1h": 5_000,
+  "24h": 15_000,
+  "7d": 60_000,
+  "30d": 120_000,
+  all: 300_000,
+};
+/** The two pages that carry positions marked at the feed's price. Their own poll is every two
+ *  minutes, so half of that: a single reader is never more than one cycle behind, and a
+ *  hundred of them still land on two passes a cycle instead of a hundred. */
+export const MARKED: Record<string, number> = { "1h": 5_000, "24h": 15_000, "7d": 30_000, "30d": 60_000, all: 60_000 };
+/** Every key here opens with the window, whatever else it carries. */
+export const ttlBy =
+  (ladder: Record<string, number>) =>
+  (key: string): number =>
+    ladder[key.split("|")[0] ?? ""] ?? 15_000;
+
+/** The tape's own totals: a running count over every fill, and the first one on it. Neither
+ *  is read closely enough to be worth a scan of the table twelve times a minute. */
+const totals = memo(30_000, () => counts());
+
 /** The window in a line, as the original's readout has it: volume, buys against sells, breadth, pace, the biggest buy. */
-const overviewFor = memo(5_000, (window): Overview => {
+const overviewFor = memo(ttlBy(COUNTED), (window): Overview => {
   const now = Math.floor(Date.now() / 1000);
   const o = overview(since(window), now);
   const big = o.biggest_buy;
@@ -58,7 +92,7 @@ const overviewFor = memo(5_000, (window): Overview => {
 const startedAt = Date.now();
 
 const status = memo(5_000, (window): Status => {
-  const { trades, first_ts, last_ts } = counts();
+  const { trades, first_ts, last_ts } = totals();
   const now = Math.floor(Date.now() / 1000);
   return {
     chain_id: chainConfig.id,
@@ -109,13 +143,13 @@ const tapeFor = memo(1_000, (key) => {
  * The two heaviest reads: the ranking walks every wallet, the bags group the tape by token
  * and join it, plus one holders query each. Both are polled by every open tab.
  */
-const tradersFor = memo(10_000, (key) => {
+const tradersFor = memo(ttlBy(MARKED), (key) => {
   const [window, limitText] = key.split("|");
   const resolved = window ?? "24h";
   return ranking(since(resolved), resolved, Math.min(Number(limitText) || 50, 300));
 });
 
-const bagsFor = memo(15_000, (key) => {
+const bagsFor = memo(ttlBy(MARKED), (key) => {
   const [window, limitText] = key.split("|");
   return bagList(since(window), Math.min(Number(limitText) || 60, 200));
 });
