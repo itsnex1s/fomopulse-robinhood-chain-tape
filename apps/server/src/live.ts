@@ -6,9 +6,6 @@ import { sweeper } from "./ingest/sweep.ts";
 import { log } from "./log.ts";
 import { sleep } from "./sleep.ts";
 
-/** How far the chain may run ahead of the newest log before the socket is doubted; about 5 minutes. */
-const GAP_BLOCKS = 3_000;
-const WATCHDOG_MS = 30_000;
 /** How often the recent past is re-read for logs the socket dropped; the range is ingest/sweep.ts's. */
 const SWEEP_MS = 120_000;
 /** A block number the heartbeat brought back this recently stands in for an HTTP call. */
@@ -18,6 +15,14 @@ const STABLE_MS = 60_000;
 const MAX_BACKOFF_MS = 30_000;
 
 export type Emit = (fills: StoredFill[]) => void;
+
+/**
+ * How many of these fills sit past everything the socket has accounted for. A fill below
+ * the mark is a log dropped in passing, which the sweep exists to pick up; a fill above it
+ * is a block the socket should have delivered and never did.
+ */
+export const unaccounted = (fills: readonly { block: number }[], delivered: bigint): number =>
+  fills.reduce((n, fill) => (BigInt(fill.block) > delivered ? n + 1 : n), 0);
 
 /** Everything between the cursor and the head, through the same path as a cold start. Returns how many fills were new. */
 export async function resume(emit: Emit): Promise<number> {
@@ -42,13 +47,24 @@ export async function poll(emit: Emit, seconds: number): Promise<never> {
 /**
  * Live mode. A dropped socket loses the blocks it was down for, so every reconnect
  * replays them through the catch-up path; the fills primary key drops the overlap.
- * The socket can also die quietly, or a provider can reconnect it and forget the
- * subscriptions, so a watchdog compares the chain head with the newest log: a gap is
- * read over HTTP, and fills found that way are proof the socket is not delivering.
+ *
+ * The socket can also die quietly: a provider can answer the heartbeat and still have
+ * forgotten the subscriptions, and then nothing about the connection looks wrong. The
+ * sweep is what notices. It already re-reads the recent past through the catch-up path,
+ * and `insertFills` returns only rows that were not stored before, so a fill it finds in
+ * a block past everything the socket ever handed us is proof the subscription is gone.
+ * A gap comparison against the resume cursor cannot do this job: the sweep advances that
+ * cursor itself, so the gap it measures never opens.
  */
 export function follow(wsUrl: string, emit: Emit): void {
   let backoff = 1_000;
   let stop = () => {};
+  /**
+   * How far the socket has accounted for the chain: the head when it subscribed, then
+   * every log it delivered. A fill below this mark is a log dropped in passing, which is
+   * what the sweep is for; a fill above it is a subscription that stopped.
+   */
+  let delivered = 0n;
   // The chain head as the socket last reported it. The watchdog and the sweep used to
   // ask for it again over HTTP: a second question every thirty seconds that the
   // heartbeat had just had answered.
@@ -60,9 +76,20 @@ export function follow(wsUrl: string, emit: Emit): void {
   const start = () => {
     const since = Date.now();
     log.info("subscribed");
+    // Where this socket takes over. Without it a subscription that never delivers its
+    // first log leaves the mark at zero, and the one case worth catching is exactly that.
+    void head().then(
+      (block) => {
+        if (block > delivered) delivered = block;
+      },
+      () => {},
+    );
     stop = watch(
       wsUrl,
-      (entry) => void onLogs([entry], emit),
+      (entry) => {
+        if (entry.blockNumber > delivered) delivered = entry.blockNumber;
+        void onLogs([entry], emit);
+      },
       async (why) => {
         if (Date.now() - since > STABLE_MS) backoff = 1_000;
         log.warn(`subscription down (${why}), retrying in ${backoff / 1000}s`);
@@ -83,26 +110,22 @@ export function follow(wsUrl: string, emit: Emit): void {
   setInterval(async () => {
     try {
       const [from, to] = recent.range(await tip());
-      const fresh = await catchUp(from, to, emit);
+      // Counted against the live mark rather than one taken before the scan: a block the
+      // socket delivers while the sweep is reading it must not be held against it.
+      let past = 0;
+      const fresh = await catchUp(from, to, (fills) => {
+        past += unaccounted(fills, delivered);
+        emit(fills);
+      });
       recent.done(to);
       if (fresh > 0) log.warn(`the sweep found ${fresh} fills the socket did not deliver`);
-    } catch (error) {
-      log.error("sweep", error);
-    }
-  }, SWEEP_MS);
-
-  setInterval(async () => {
-    try {
-      const block = Number(await tip());
-      if (block - cursor.highest < GAP_BLOCKS) return;
-      const fresh = await resume(emit);
-      if (fresh > 0) {
-        log.warn(`the socket missed ${fresh} fills; resubscribing`);
+      if (past > 0) {
+        log.warn(`${past} of them are past everything the socket ever delivered; resubscribing`);
         stop();
         start();
       }
     } catch (error) {
-      log.error("watchdog", error);
+      log.error("sweep", error);
     }
-  }, WATCHDOG_MS);
+  }, SWEEP_MS);
 }
