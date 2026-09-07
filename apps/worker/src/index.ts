@@ -51,6 +51,9 @@ async function answer(request: Request, env: Env, ctx: ExecutionContext, url: UR
   if (hit) {
     const cached = new Response(hit.body, hit);
     cached.headers.set("x-cache", "hit");
+    // The verdict on the stored answer was whoever missed and reached the object; this reader
+    // spent none of their minute, and saying otherwise would read as a ceiling nobody is near.
+    cached.headers.set("x-limit", "cached");
     return cached;
   }
 

@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { limits, ms } from "../../server/src/limits.ts";
 import { log } from "../../server/src/log.ts";
 import type { Env } from "./env.ts";
-import { bytesUsed, use } from "./sqlite.ts";
+import { bytesUsed, rowsRead, use } from "./sqlite.ts";
 
 /**
  * Every clock this object runs on comes from config/limits.json, where the reasoning sits
@@ -43,7 +43,20 @@ export class Tape extends DurableObject<Env> {
    * What the pulse did last, answered on `/alive`. An alarm that stops firing looks from
    * outside exactly like a quiet chain; this tells the two apart.
    */
-  private beat = { ran: 0, took: 0, error: null as string | null, ticks: 0, by: "none", step: "none" };
+  private beat = {
+    ran: 0,
+    took: 0,
+    error: null as string | null,
+    ticks: 0,
+    by: "none",
+    step: "none",
+    /**
+     * Rows each step of the last pass walked, as the storage counted them. The bill is mostly
+     * this — the jobs, not the readers — and without it the only way to tell which of them is
+     * spending the month is to guess. Answered on `/alive`.
+     */
+    rows: {} as Record<string, number>,
+  };
   /** One tick at a time, whoever asked for it — until the one in flight overstays. */
   private running?: { started: number; done: Promise<void> };
 
@@ -150,9 +163,14 @@ export class Tape extends DurableObject<Env> {
    */
   private async within<T>(step: string, until: number, work: Promise<T>): Promise<T | undefined> {
     this.beat.step = step;
+    const walked = rowsRead();
+    const count = () => {
+      this.beat.rows[step] = (this.beat.rows[step] ?? 0) + (rowsRead() - walked);
+    };
     const left = until - Date.now();
     if (left <= 0) {
       this.failed(step, new Error("no time left in the pass"));
+      count();
       return undefined;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -166,7 +184,10 @@ export class Tape extends DurableObject<Env> {
       this.failed(step, error);
       return undefined;
     });
-    return Promise.race([done, capped]).finally(() => clearTimeout(timer));
+    return Promise.race([done, capped]).finally(() => {
+      clearTimeout(timer);
+      count();
+    });
   }
 
   /** Logged for the tail, and kept for `/alive`, which outlives the log line. */
@@ -205,7 +226,7 @@ export class Tape extends DurableObject<Env> {
     await this.booted;
     this.bind();
     const now = Date.now();
-    this.beat = { ran: now, took: 0, error: null, ticks: this.beat.ticks + 1, by, step: "start" };
+    this.beat = { ran: now, took: 0, error: null, ticks: this.beat.ticks + 1, by, step: "start", rows: {} };
     const app = this.app!;
     const until = now + PASS_MS;
     app.follow();
