@@ -27,9 +27,12 @@ const READ = `SELECT wallet, token,
 const stmt = {
   dropAll: db.query("DELETE FROM positions"),
   dropToken: db.query("DELETE FROM positions WHERE token = ?"),
+  dropOne: db.query("DELETE FROM positions WHERE token = ?1 AND wallet = ?2"),
   fillAll: db.query(`INSERT INTO positions (${COLUMNS}) ${READ} GROUP BY wallet, token`),
-  /** The same read for one token, off `positions_token`'s sibling index on the fills. */
+  /** The same read for one token, off the fills' own index on it. */
   fillToken: db.query(`INSERT INTO positions (${COLUMNS}) ${READ} AND token = ?1 GROUP BY wallet`),
+  /** And for the one wallet in it that traded, which is what a fill landing actually changes. */
+  fillOne: db.query(`INSERT INTO positions (${COLUMNS}) ${READ} AND token = ?1 AND wallet = ?2 GROUP BY wallet`),
 };
 
 /** Set once the table has been built from the fills at least once, so an empty tape is not
@@ -48,16 +51,29 @@ export function rebuildPositions(): void {
   built = true;
 }
 
-/** The positions of one token, rewritten from its fills. Cheap: the fills are indexed by
- *  token, and a token has as many rows here as there are wallets that have touched it. */
+/**
+ * The positions of one token, every wallet in it rewritten from the fills. For the two things
+ * that reach a whole token at once: the pardon that brings its dusted history back, and a
+ * price arriving for fills that landed without one.
+ *
+ * No check that the table has been built: this runs inside the insert's own transaction, and
+ * a rebuild started from in there would be a transaction inside a transaction. On an unbuilt
+ * table these rows are right for their token and the first full pass replaces them anyway.
+ */
 export function refreshPositions(tokens: Iterable<string>): void {
-  // No check that the table has been built: this runs inside the insert's own transaction,
-  // and a rebuild started from in there would be a transaction inside a transaction. On an
-  // unbuilt table these rows are right for their token and the first full pass replaces
-  // them anyway.
   for (const token of tokens) {
     stmt.dropToken.run(token);
     stmt.fillToken.run(token);
+  }
+}
+
+/** One wallet's position in one token. What a fill landing actually changes — and rows
+ *  written is the allowance this tape is nearest to spending, so a fill in a token twenty
+ *  wallets hold rewrites one row rather than twenty. */
+export function refreshHeld(pairs: Iterable<{ wallet: string; token: string }>): void {
+  for (const { wallet, token } of pairs) {
+    stmt.dropOne.run(token, wallet);
+    stmt.fillOne.run(token, wallet);
   }
 }
 

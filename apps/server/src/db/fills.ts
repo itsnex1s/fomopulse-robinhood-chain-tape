@@ -2,7 +2,7 @@ import type { Fill, Priced, Side } from "../api/types.ts";
 import type { StoredFill } from "../ingest/reconstruct.ts";
 import { noteHeld } from "./bags.ts";
 import { db } from "./connection.ts";
-import { refreshPositions } from "./positions.ts";
+import { refreshHeld, refreshPositions } from "./positions.ts";
 
 /** The tape itself — one row per fill — and the reads the screen is built from. */
 /** Seconds: how old a fill can be and still have a supply written onto it. Past this the feed's supply is no
@@ -69,14 +69,19 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
       }
     }
     const since = Math.floor(Date.now() / 1000) - SUPPLY_MAX_AGE;
+    const pardoned = new Set<string>();
     for (const token of touched) {
       // Both in the same transaction as the insert that can have earned them.
-      stmt.clearDustOf.run(token);
+      if (stmt.clearDustOf.run(token).changes > 0) pardoned.add(token);
       stmt.stampSupply.run(token, since);
     }
-    // Last, and inside the same transaction: the pardon above changes which fills count,
-    // so the positions have to be read after it rather than before.
-    refreshPositions(touched);
+    // Last, and inside the same transaction: the pardon changes which fills count, so the
+    // positions are read after it rather than before. A pardon reaches every wallet in the
+    // token; an ordinary fill reaches the one wallet that made it, and nothing else.
+    refreshPositions(pardoned);
+    refreshHeld(
+      new Map(fresh.filter((f) => !pardoned.has(f.token)).map((f) => [`${f.wallet}\u0000${f.token}`, f])).values(),
+    );
   })();
   // Outside the transaction: it changes nothing on disk, only what the quote pass believes
   // about which tokens are held. Buys only — a sell is not somebody going long.

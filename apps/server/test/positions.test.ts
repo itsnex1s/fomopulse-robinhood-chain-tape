@@ -126,3 +126,26 @@ test("a prune drops fills by time, and the table is read off the tape again", ()
   prune(now);
   expect(agrees(token)).toHaveLength(0);
 });
+
+test("a fill rewrites the wallet that made it and leaves the rest of the token alone", () => {
+  const [one, two, three] = wallets as [(typeof wallets)[0], (typeof wallets)[0], (typeof wallets)[0]];
+  const token = "0xp0s0000000000000000000000000000000000a5";
+  insertFills([
+    fill({ tx: "0xpos-a", block: 9_207, ts: now - 400, wallet: one.address, token, amount: 5, usd: 50 }),
+    fill({ tx: "0xpos-b", block: 9_208, ts: now - 390, wallet: two.address, token, amount: 7, usd: 70 }),
+    fill({ tx: "0xpos-c", block: 9_209, ts: now - 380, wallet: three.address, token, amount: 9, usd: 90 }),
+  ]);
+  expect(agrees(token)).toHaveLength(3);
+
+  // One of the three buys again. The other two are not read again and must still be right.
+  insertFills([fill({ tx: "0xpos-d", block: 9_210, ts: now - 10, wallet: two.address, token, amount: 3, usd: 33 })]);
+  const rows = agrees(token);
+  expect(rows).toHaveLength(3);
+  const of = (wallet: string) => rows.find((r) => r.wallet === wallet);
+  expect(of(one.address)?.amount).toBe(5);
+  expect(of(two.address)?.amount).toBe(10);
+  expect(of(three.address)?.amount).toBe(9);
+  // And the untouched rows are the ones that were written first, not rewritten since.
+  expect(of(one.address)?.last_ts).toBe(now - 400);
+  expect(of(three.address)?.last_ts).toBe(now - 380);
+});
