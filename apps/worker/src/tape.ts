@@ -57,6 +57,8 @@ export class Tape extends DurableObject<Env> {
      */
     rows: {} as Record<string, number>,
   };
+  /** Rows each route has walked since the object started; see `answer`. */
+  private spent: Record<string, number> = {};
   /** One tick at a time, whoever asked for it — until the one in flight overstays. */
   private running?: { started: number; done: Promise<void> };
 
@@ -97,6 +99,9 @@ export class Tape extends DurableObject<Env> {
       if (spare) await this.pulse("cron");
       return Response.json({
         ...this.beat,
+        // What the answers have walked against what the whole object has: the rest is the
+        // chain arriving, which nothing else here counts.
+        spent: { ...this.spent, everything: rowsRead() },
         session: this.app!.session(),
         // The object's SQLite stops at ten gigabytes, so how far off that is belongs here.
         bytes: bytesUsed(),
@@ -104,7 +109,21 @@ export class Tape extends DurableObject<Env> {
         now: Date.now(),
       });
     }
-    return this.app!.api.fetch(request);
+    return this.answer(url, request);
+  }
+
+  /**
+   * One API answer, and what it walked. Rows read is most of the bill and only some of it is
+   * the pass; this is the other half, per route, so a page that costs more than it looks can
+   * be told from a job that does. Kept since the object started rather than per pass, because
+   * one answer in a minute says nothing and a thousand say everything.
+   */
+  private async answer(url: URL, request: Request): Promise<Response> {
+    const before = rowsRead();
+    const response = await this.app!.api.fetch(request);
+    const route = url.pathname.slice("/api/".length);
+    this.spent[route] = (this.spent[route] ?? 0) + (rowsRead() - before);
+    return response;
   }
 
   /** Hibernatable, so a thousand idle readers cost nothing between fills. */

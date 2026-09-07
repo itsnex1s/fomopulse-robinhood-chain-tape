@@ -37,6 +37,15 @@ export const SCHEMA = `
   CREATE INDEX IF NOT EXISTS fills_ts ON fills (ts);
   CREATE INDEX IF NOT EXISTS fills_wallet_token_ts ON fills (wallet, token, ts);
   CREATE INDEX IF NOT EXISTS fills_token_ts ON fills (token, ts);
+  /**
+   * The two writes every arriving fill makes against its own token: the dust pardon, and the
+   * supply stamp. Both are keyed on the token and both are interested in a handful of its
+   * rows, so a plain index on the token walks all of them — thousands, on every fill, which
+   * was nearly half of everything this tape reads. Partial, so each holds only the rows its
+   * statement is looking for, and is empty for the token that has none.
+   */
+  CREATE INDEX IF NOT EXISTS fills_dusty ON fills (token) WHERE dust = 1;
+  CREATE INDEX IF NOT EXISTS fills_unstamped ON fills (token, ts) WHERE supply IS NULL;
   CREATE TABLE IF NOT EXISTS prices (
     token TEXT PRIMARY KEY, price_usd REAL NOT NULL, liquidity_usd REAL, change24 REAL,
     pair_created_at INTEGER, pair_address TEXT, updated_at INTEGER NOT NULL,
