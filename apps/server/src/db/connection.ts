@@ -31,3 +31,11 @@ try {
 /** A slice of the one-off carry, small enough that opening the database stays an open rather
  *  than a migration; the pass finishes the rest. See db/logs.ts. */
 carryTransfersOntoReceipts(db, limits.migrate.bootRows);
+
+/**
+ * An index that cost more to keep than the sort it saved. Ordering the quotes by age is a read
+ * of a few hundred rows; indexing that column is a write on every quote stored, and the quote
+ * pass stores a hundred and eighty of them four times a minute. A row written is priced at a
+ * thousand times a row read, so the trade was thirty dollars a month against three cents.
+ */
+db.exec("DROP INDEX IF EXISTS prices_updated");

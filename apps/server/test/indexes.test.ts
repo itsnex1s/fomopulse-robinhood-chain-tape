@@ -98,14 +98,13 @@ test("the discover page walks the young pools, not the whole tape twice over", (
   expect(detail).toContain("SEARCH a USING INDEX fills_token_ts (token=?)");
 });
 
-test("the stalest quotes are found in order rather than sorted out of every quote there is", () => {
-  const detail = plan(
-    `SELECT p.token AS token FROM prices p
-      WHERE EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?1)
-      ORDER BY p.updated_at ASC LIMIT ?2`,
-    0,
-    10,
-  );
-  expect(detail).toContain("prices_updated");
-  expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
+test("the quotes are ordered by a sort rather than by an index that every pass would rewrite", () => {
+  // Deliberately not indexed. `prices` is a few hundred rows and the quote pass rewrites most
+  // of them four times a minute: sorting them is a read, indexing them is a write per quote,
+  // and a row written is priced at a thousand times a row read.
+  const columns = db
+    .query<{ name: string }, []>("SELECT name FROM pragma_index_list('prices')")
+    .all()
+    .map((row) => row.name);
+  expect(columns.filter((name) => !name.startsWith("sqlite_autoindex"))).toEqual([]);
 });
