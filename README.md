@@ -66,14 +66,18 @@ docker run -p 8080:8080 -v fomopulse-data:/data -e RPC_WS_URL=wss://... fomopuls
 | `GET /api/overview?window=` | the window in a line: volume, buys and sells, wallets, tokens, pace, the biggest buy |
 | `GET /api/traders?window=&limit=` | every tracked wallet: what it did here, and what its books made — realized in the window, what is still open, round trips, win rate, rank |
 | `GET /api/bags?window=&limit=` | what the tracked traders are sitting in, by token: positions and profit, the feed's quote, the tape's flow |
+| `GET /api/discover?window=&limit=` | tokens whose pool opened in the last three days and a tracked wallet bought: who is in, what they put in, the multiple since the first of them, and the wash and spray counts. Pools too thin to be a market, or turning over more than twenty times their own depth in a day, are left out |
 | `WS /ws` | `{type:"fills", data:[…]}` as they land |
 | `GET /api/alive` | the fomo session — deployed, renewing, when it expires — and the uptime; on Cloudflare also what the pulse last did: which step, how long it took, what failed |
 
 ## What you see
 
-Three screens, `[` and `]` between them. **tape** is the fills as they land; **traders** is
+Four screens, `[` and `]` between them. **tape** is the fills as they land; **traders** is
 every tracked wallet with what it did here and what its books made; **bags** is what
-those wallets are still long, by token, marked at the feed's price.
+those wallets are still long, by token, marked at the feed's price; **discover** is the
+tokens whose pool opened in the last three days, ordered by how many of those wallets
+bought in. It says who bought, not that a token is safe: there is no contract analysis
+behind it, only this tape and the pool's own depth.
 
 `1`–`5` pick the window every screen counts in, `t` shows or hides tokenised stocks, `d`
 the dusting — tokens nobody paid for, pushed to every tracked wallet — and `/` filters by

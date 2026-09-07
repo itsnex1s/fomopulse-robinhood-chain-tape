@@ -68,7 +68,8 @@ Object: one alarm every fifteen seconds is its pulse, and it prices, catches up,
 fomo on clocks kept in its own storage. `apps/worker/src/index.ts` is the edge in front of it,
 serving the built SPA, forwarding `/ws`, and answering `/api/*` out of the colo cache.
 
-**API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/limits`, `/api/alive`,
+**API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/discover`, `/api/limits`,
+`/api/alive`,
 plus `/ws` for the live push. All take `window` and most take `limit`; the tape also takes
 `stocks`, `dust` and a `before`/`beforeId` cursor. `api/types.ts` is the single definition of every
 response, re-exported type-only by the web app, so a renamed field fails the typecheck on both sides.
@@ -123,6 +124,9 @@ exports. A module with no exports listed is an entry point that runs on import.
                         startTraders traderInterval retryInterval leaderboardState quoteBags
                         The leaderboard pass, the standing every screen ranks by, and the two
                         lists — who moved the tape, and what those wallets are still long.
+    9b discover.ts      discoverList
+                        The discover page: the young pools the tracked wallets are buying into,
+                        with the books' rank of everyone in each of them.
     10 pnl.ts           rebuildStats startBooks
                         The books: one sequential walk over every fill, average cost per wallet
                         and token, rewriting trader_stats. Read this before touching a p/l.
@@ -184,9 +188,14 @@ exports. A module with no exports listed is an entry point that runs on import.
                         Feed quotes per token, and the repricing of fills that arrived unpriced.
     28 traders.ts       saveTraders allTraders TraderRow IncomingTrader
                         fomo trader cards: identity only, no figures.
-    29 bags.ts          tapeBags tapeHolders tapeTokens unnamedBags recordBagHistory BagRow Holder
+    29 bags.ts          tapeBags tapeHolders tapeTokens unnamedBags recordBagHistory RESIDUE
+                        PER_QUERY BagRow Holder
                         Bag aggregates off the fills, the holders of a whole page in one query,
                         and the hourly snapshot the window deltas are read against.
+    29b discover.ts     discoverTokens discoverBuyers MAX_POOL_AGE MIN_POOL_USD MAX_CHURN
+                        DiscoverRow Buyer
+                        Young pools with what this tape saw happen in them, and who bought a
+                        whole page of them. The cuts that decide what is a discovery live here.
     30 stats.ts         allStats saveStats statsVersion fillsAfter lastPriceOf STAT_WINDOWS
                         StatRow StatFill StatWindow
                         The books table: paged fill reads for the walk, and the version a reader
@@ -207,7 +216,7 @@ exports. A module with no exports listed is an entry point that runs on import.
 
 ### apps/server/src/api
 
-    36 types.ts         Fill Trader Bag Status Overview Window Side Priced
+    36 types.ts         Fill Trader Bag Discover Status Overview Window Side Priced
                         The entire wire contract. No imports, by design.
     37 fills.ts         toFill handleOf
                         A stored tape row becomes the wire Fill; wallet to handle.
@@ -215,7 +224,7 @@ exports. A module with no exports listed is an entry point that runs on import.
                         What the month is on course to walk, said by the answers themselves, and
                         how much longer to hold them for it.
     38 routes.ts        api
-                        The Hono app: the seven GET routes, and the in-process memo in front of
+                        The Hono app: the eight GET routes, and the in-process memo in front of
                         them, whose lifetimes come from config/limits.json.
     39 ws.ts            websocket broadcast
                         Bun's pub/sub socket handlers.
@@ -262,6 +271,10 @@ exports. A module with no exports listed is an entry point that runs on import.
     59 bags-row.tsx     BagRow           One bag row, its delta badge and holder strip.
     60 bags-math.ts     ret retLabel net cost barWidth holderTitle name BY SortKey
                                          Bag arithmetic and the strings derived from it.
+    60a Discover.tsx    Discover         The new-token table, its cuts and its footer.
+    60b discover-row.tsx DiscoverRow     One young pool: its flow, its multiple, who bought it.
+    60c discover-math.ts growth growthLabel churn net keep name CUTS Cuts BY SortKey
+                                         What the page measures, and the cuts the reader keeps.
     61 cards.tsx        TokenCard TraderCard Links poolAge vsNowPct NEW_POOL_S THIN_LIQUIDITY
                                          The hover card bodies.
     62 StatusBar.tsx    StatusBar        The header: feed state, controls, the overview numbers.
