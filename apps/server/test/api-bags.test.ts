@@ -1,5 +1,6 @@
 /** The bags: net positions read off the tape, what each of them counts, and how they moved. */
 import { expect, test } from "bun:test";
+import { tapeHolders } from "../src/db.ts";
 import { api, fill, insertFills, now, recordBagHistory, savePrice, saveToken, wallets } from "./support/api.ts";
 
 const CHAIN = 4663;
@@ -163,4 +164,34 @@ test("the hour is snapshotted once, however often the quote pass comes round", (
   expect(recordBagHistory(now + 60, CHAIN)).toBe(false);
   // A new hour is a new snapshot.
   expect(recordBagHistory(now + 3_600, CHAIN)).toBe(true);
+});
+
+/**
+ * Durable Object SQL takes a hundred bound variables and bun:sqlite takes thousands, so a
+ * page wider than one query only breaks where it is deployed. Two hundred bags is the
+ * default the web app asks for.
+ */
+test("a page of bags wider than one query still finds every bag's holders", () => {
+  const holder = wallets[9]!;
+  const tokens = Array.from({ length: 120 }, (_, i): `0x${string}` => `0x9${i.toString(16).padStart(39, "0")}`);
+  insertFills(
+    tokens.map((token, i) =>
+      fill({
+        tx: `0xwide-${i}`,
+        block: 200 + i,
+        ts: now - 40,
+        wallet: holder.address,
+        token,
+        amount: 2,
+        usd: 1,
+        price: 0.5,
+      }),
+    ),
+  );
+  for (const token of tokens)
+    savePrice(token, { price: 0.5, liquidity: 10, change24: 0, pairCreatedAt: null, pair: null }, now);
+
+  const held = tapeHolders(tokens);
+  expect(held.size).toBe(tokens.length);
+  for (const token of tokens) expect(held.get(token)).toEqual([{ wallet: holder.address, value: 1 }]);
 });

@@ -3,6 +3,7 @@ import { chainConfig, env, wallets } from "../config.ts";
 import { counts, getMeta, overview, tape } from "../db.ts";
 import { cursor } from "../ingest/cursor.ts";
 import { latencyMs, latencySummary } from "../ingest/lag.ts";
+import { describe, log } from "../log.ts";
 import { sessionState } from "../privy.ts";
 import { bagList, leaderboardState, ranking } from "../traders.ts";
 import { since } from "../window.ts";
@@ -144,4 +145,9 @@ export const api = new Hono()
   .get("/api/traders", (c) =>
     c.json(tradersFor([c.req.query("window") ?? "24h", c.req.query("limit") ?? "50"].join("|"))),
   )
-  .get("/api/bags", (c) => c.json(bagsFor([c.req.query("window") ?? "all", c.req.query("limit") ?? "60"].join("|"))));
+  .get("/api/bags", (c) => c.json(bagsFor([c.req.query("window") ?? "all", c.req.query("limit") ?? "60"].join("|"))))
+  // A 500 with nothing behind it is a screen that stopped for a reason nobody can read.
+  .onError((error, c) => {
+    log.error(`api ${new URL(c.req.url).pathname}`, error);
+    return c.json({ error: describe(error) }, 500);
+  });

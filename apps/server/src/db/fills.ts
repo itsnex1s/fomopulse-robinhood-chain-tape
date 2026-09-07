@@ -1,5 +1,6 @@
 import type { Fill, Priced, Side } from "../api/types.ts";
 import type { StoredFill } from "../ingest/reconstruct.ts";
+import { noteHeld } from "./bags.ts";
 import { db } from "./connection.ts";
 
 /** The tape itself — one row per fill — and the reads the screen is built from. */
@@ -43,8 +44,8 @@ const stmt = {
 /** Returns the fills that were new; the primary key drops replays after a reconnect. */
 export function insertFills(fills: StoredFill[]): StoredFill[] {
   const fresh: StoredFill[] = [];
+  const touched = new Set<string>();
   db.transaction(() => {
-    const touched = new Set<string>();
     for (const f of fills) {
       const { changes } = stmt.insertFill.run(
         f.tx,
@@ -72,6 +73,9 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
       stmt.stampSupply.run(token, since);
     }
   })();
+  // Outside the transaction: it changes nothing on disk, only what the quote pass believes
+  // about which tokens are held. Buys only — a sell is not somebody going long.
+  noteHeld(fresh.filter((f) => f.side === "buy").map((f) => f.token));
   return fresh;
 }
 

@@ -38,17 +38,18 @@ const stmt = {
       ORDER BY SUM(pos.amount) * COALESCE(MAX(p.price_usd), 0) DESC
       LIMIT ?1`,
   ),
-  /** Tokens a tracked wallet is still long, with the age of their quote, so the feed knows
-   *  what to mark. Neither ordered nor bounded: the caller does both. */
-  tapeTokens: db.query<{ token: string; quoted_at: number | null }, []>(
+  /** Tokens a tracked wallet is still long. A grouped pass over every fill, which is why
+   *  the answer is kept — see `tapeTokens` below. */
+  heldTokens: db.query<{ token: string }, []>(
     `WITH pos AS (
        SELECT token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
          FROM fills WHERE dust = 0 GROUP BY wallet, token
      )
-     SELECT x.token AS token, p.updated_at AS quoted_at
-       FROM (SELECT DISTINCT token FROM pos WHERE amount > 0) x
-       LEFT JOIN prices p ON p.token = x.token`,
+     SELECT DISTINCT token FROM pos WHERE amount > 0`,
   ),
+  /** When each token was last quoted. One row per token the tape has ever priced, which is
+   *  a few hundred against a tape of millions of fills, and it is the half that moves. */
+  quotedAt: db.query<{ token: string; updated_at: number }, []>("SELECT token, updated_at FROM prices"),
   /** Positions read off our own tape, counting only wallets still long: a sale of tokens bought before the
    *  tape began nets negative and would hide what the others hold. `pnl` is average cost across the priced
    *  buys, no lot accounting. The window bounds the flow columns only. Parameters: window start, row limit. */
@@ -128,7 +129,39 @@ export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
 /** Tokens the tracked wallets hold or moved lately: position columns from net fills, flow
  *  columns from the window. */
 export const tapeBags = (sinceTs: number, limit: number): BagRow[] => stmt.tapeBags.all(sinceTs, limit);
-export const tapeTokens = () => stmt.tapeTokens.all();
+/**
+ * How long the held set is kept before it is read off the fills again. The set is a grouped
+ * pass over every fill and it barely moves — a token joins it when a wallet opens a position
+ * and leaves when the last one closes — while the thing the caller actually sorts by, the
+ * age of the quote, is read fresh every time. Every three minutes this pass was thirty
+ * full scans of the tape an hour, for a list that changes a few times a day.
+ */
+const HELD_MS = 30 * 60_000;
+let held: { at: number; tokens: Set<string> } | undefined;
+
+/** Tokens a tracked wallet is still long, with the age of their quote, so the feed knows
+ *  what to mark. Neither ordered nor bounded: the caller does both. */
+export function tapeTokens(): { token: string; quoted_at: number | null }[] {
+  const now = Date.now();
+  if (held === undefined || now - held.at > HELD_MS)
+    held = { at: now, tokens: new Set(stmt.heldTokens.all().map((row) => row.token)) };
+  const quoted = new Map(stmt.quotedAt.all().map((row) => [row.token, row.updated_at]));
+  return [...held.tokens].map((token) => ({ token, quoted_at: quoted.get(token) ?? null }));
+}
+
+/**
+ * Tokens a buy just landed in: somebody is long them now, so they belong in the set at
+ * once rather than whenever it is next read off the fills. Added rather than treated as a
+ * reason to read it again — this tape opens a couple of dozen new tokens an hour, and
+ * dropping the set on each of them would cost more passes than keeping none.
+ *
+ * Nothing here removes: a position closing is the one thing the set learns late, and the
+ * cost of that is a token quoted for a while after the last wallet left it.
+ */
+export const noteHeld = (tokens: Iterable<string>): void => {
+  if (held === undefined) return;
+  for (const token of tokens) held.tokens.add(token);
+};
 
 /** One bag's largest holders, as the screen lists them under the row. */
 export interface Holder {
@@ -137,36 +170,44 @@ export interface Holder {
 }
 
 /**
- * The net-long wallets of a whole page of bags, largest position first, in one query: the
- * tokens are all known before the first of them is needed. Within a token the price is one
- * number, so ordering by amount held is ordering by what it is worth. The IN list varies
- * only by page size, so the connection caches a handful of prepared shapes.
+ * Tokens per holders query. Durable Object SQL takes at most 100 bound variables, and the
+ * row limit is one of them; bun:sqlite would take thousands, so only the deployment finds
+ * this. A page of two hundred bags is three queries rather than two hundred.
+ */
+const PER_QUERY = 99;
+
+/**
+ * The net-long wallets of a whole page of bags, largest position first. The tokens are all
+ * known before the first of them is needed, so they go together instead of a query a row.
+ * Within a token the price is one number, so ordering by amount held is ordering by worth.
  */
 export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
   const held = new Map<string, Holder[]>();
-  if (tokens.length === 0) return held;
-  const rows = db
-    .query<{ token: string; wallet: string; value: number | null }, (string | number)[]>(
-      `WITH pos AS (
-         SELECT token, wallet, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
-           FROM fills WHERE dust = 0 AND token IN (${tokens.map(() => "?").join(", ")})
-          GROUP BY token, wallet
-       ),
-       ranked AS (
-         SELECT token, wallet, amount,
-                ROW_NUMBER() OVER (PARTITION BY token ORDER BY amount DESC) AS place
-           FROM pos WHERE amount > 0
-       )
-       SELECT r.token AS token, r.wallet AS wallet, r.amount * p.price_usd AS value
-         FROM ranked r LEFT JOIN prices p ON p.token = r.token
-        WHERE r.place <= ?
-        ORDER BY r.token, r.place`,
-    )
-    .all(...tokens, per);
-  for (const row of rows) {
-    const list = held.get(row.token);
-    if (list === undefined) held.set(row.token, [{ wallet: row.wallet, value: row.value }]);
-    else list.push({ wallet: row.wallet, value: row.value });
+  for (let from = 0; from < tokens.length; from += PER_QUERY) {
+    const batch = tokens.slice(from, from + PER_QUERY);
+    const rows = db
+      .query<{ token: string; wallet: string; value: number | null }, (string | number)[]>(
+        `WITH pos AS (
+           SELECT token, wallet, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
+             FROM fills WHERE dust = 0 AND token IN (${batch.map(() => "?").join(", ")})
+            GROUP BY token, wallet
+         ),
+         ranked AS (
+           SELECT token, wallet, amount,
+                  ROW_NUMBER() OVER (PARTITION BY token ORDER BY amount DESC) AS place
+             FROM pos WHERE amount > 0
+         )
+         SELECT r.token AS token, r.wallet AS wallet, r.amount * p.price_usd AS value
+           FROM ranked r LEFT JOIN prices p ON p.token = r.token
+          WHERE r.place <= ?
+          ORDER BY r.token, r.place`,
+      )
+      .all(...batch, per);
+    for (const row of rows) {
+      const list = held.get(row.token);
+      if (list === undefined) held.set(row.token, [{ wallet: row.wallet, value: row.value }]);
+      else list.push({ wallet: row.wallet, value: row.value });
+    }
   }
   return held;
 }
