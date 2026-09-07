@@ -194,3 +194,51 @@ export interface Bag {
   holders_list: { handle: string; value: number; pnl: number | null; avatar_url: string | null }[];
 }
 
+/**
+ * `GET /api/discover`: a young pool a tracked wallet has bought into. The feed says how deep
+ * and how old it is; everything about who is in it is measured on this tape. Pools too
+ * shallow to be a market, and ones whose day's volume dwarfs their own depth, never reach here.
+ */
+export interface Discover {
+  token: string;
+  symbol: string | null;
+  name: string | null;
+  image_url: string | null;
+  is_stock: number;
+  /** The feed's card for the pool. `pair_created_at` is milliseconds, as DexScreener reports it. */
+  price: number | null;
+  quoted_at: number | null;
+  liquidity: number | null;
+  change24: number | null;
+  volume24: number | null;
+  buys24: number | null;
+  sells24: number | null;
+  market_cap: number | null;
+  dex: string | null;
+  pair_created_at: number | null;
+  pair_address: string | null;
+  /** Tracked wallets that bought it, ever and inside the window, against the ones that sold. */
+  buyers: number;
+  buyers_recent: number;
+  sellers: number;
+  fills: number;
+  bought_usd: number;
+  sold_usd: number;
+  last_fill_ts: number | null;
+  /** Wallets still long it, and how many were when the window opened. */
+  holders: number;
+  holders_then: number | null;
+  /** The first tracked wallet in, by handle, and how long after the pool opened it bought. */
+  first_buyer: string | null;
+  first_buy_ts: number | null;
+  first_lag: number | null;
+  /** What the whole token was worth at that first buy, against what the feed says now. */
+  mcap_at: number | null;
+  /** Fills of it the dust rule kept off the tape: a token that was sprayed as well as sold. */
+  dusted: number;
+  /** Buys and sells by one wallet that cancelled within five minutes at the same size. */
+  wash: number;
+  /** The best books rank among the wallets that bought it; null where none of them is ranked. */
+  best_rank: number | null;
+  buyers_list: { handle: string; ts: number; usd: number | null; rank: number | null; avatar_url: string | null }[];
+}

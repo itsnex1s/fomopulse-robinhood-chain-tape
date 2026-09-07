@@ -180,7 +180,7 @@ export interface Holder {
  * row limit is one of them; bun:sqlite would take thousands, so only the deployment finds
  * this. A page of two hundred bags is three queries rather than two hundred.
  */
-const PER_QUERY = 99;
+export const PER_QUERY = 99;
 
 /**
  * The net-long wallets of a whole page of bags, largest position first. The tokens are all

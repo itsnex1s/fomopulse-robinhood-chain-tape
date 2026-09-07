@@ -2,6 +2,7 @@
 
 export * from "./db/bags.ts";
 export { db } from "./db/connection.ts";
+export * from "./db/discover.ts";
 export * from "./db/fills.ts";
 export * from "./db/meta.ts";
 export * from "./db/positions.ts";

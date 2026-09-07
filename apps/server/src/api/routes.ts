@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { chainConfig, env, wallets } from "../config.ts";
-import { counts, getMeta, overview, positionsCount, tape } from "../db.ts";
+import { counts, getMeta, MAX_POOL_AGE, overview, positionsCount, tape } from "../db.ts";
+import { discoverList } from "../discover.ts";
 import { cursor } from "../ingest/cursor.ts";
 import { latencyMs, latencySummary } from "../ingest/lag.ts";
 import { limits, ms } from "../limits.ts";
@@ -176,6 +177,19 @@ const bagsFor = memo(ttlBy(MARKED), (key) => {
   return bagList(since(window), Math.min(Number(limitText) || 60, 200));
 });
 
+/**
+ * The discover page: the young pools, and everyone who bought one. Bounded by the pool age
+ * the storage layer cuts at rather than by the window, which here only says what "just now"
+ * means — a token three days old belongs on the page whichever window the reader is in.
+ */
+const discoverFor = memo(ttlBy(MARKED), (key) => {
+  const [window, limitText] = key.split("|");
+  const limit = Math.min(Number(limitText) || 60, 200);
+  // Only the pools younger than the cut are read, plus their own fills and one buyers query.
+  spend(limit * 4 + fillsIn(window ?? "24h"));
+  return discoverList(Math.max(since(window ?? "24h"), Math.floor(Date.now() / 1000) - MAX_POOL_AGE), limit);
+});
+
 export const api = new Hono()
   .get("/api/status", (c) => c.json(status(c.req.query("window") ?? "24h")))
   // The pulse. On Cloudflare the object answers this itself, with the alarm's beat as well;
@@ -205,6 +219,9 @@ export const api = new Hono()
     c.json(tradersFor([c.req.query("window") ?? "24h", c.req.query("limit") ?? "50"].join("|"))),
   )
   .get("/api/bags", (c) => c.json(bagsFor([c.req.query("window") ?? "all", c.req.query("limit") ?? "60"].join("|"))))
+  .get("/api/discover", (c) =>
+    c.json(discoverFor([c.req.query("window") ?? "24h", c.req.query("limit") ?? "60"].join("|"))),
+  )
   // A 500 with nothing behind it is a screen that stopped for a reason nobody can read.
   .onError((error, c) => {
     log.error(`api ${new URL(c.req.url).pathname}`, error);
