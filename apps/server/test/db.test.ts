@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Address } from "viem";
-import { QUOTE_TOKENS } from "../src/config.ts";
+import { env, QUOTE_TOKENS } from "../src/config.ts";
 import { db, getReceipt, saveReceipt, setEstimate } from "../src/db.ts";
 import {
   DUSTED,
@@ -91,4 +91,11 @@ test("a price arriving finishes the verdict it was missing", () => {
   expect(row("0xdc04")).toEqual({ dust: TRADE, usd: 500 });
   expect(row("0xdc05")).toEqual({ dust: DUSTED, usd: 0.5 });
   expect(row("0xdc06")).toEqual({ dust: HANDOUT, usd: 500 });
+});
+
+test("a test run never opens the database beside the checkout", () => {
+  // bunfig's preload only applies to a run started at the repo root. Started from a package
+  // directory, or by an editor's run-this-test, the default path used to be the real file
+  // and the suite wrote its fixtures into it.
+  expect(env.dbPath).toBe(":memory:");
 });

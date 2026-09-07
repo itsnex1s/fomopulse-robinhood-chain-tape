@@ -108,6 +108,9 @@ export interface Secrets {
 /** A process reads its environment; a Worker is handed one. Both end up here. */
 const ofProcess = (): Secrets => (typeof process === "undefined" ? {} : (process.env as Secrets));
 
+/** `bun test` sets this. A Worker has no process at all, so it is never under test here. */
+const underTest = typeof process !== "undefined" && process.env.NODE_ENV === "test";
+
 interface Settings {
   wsUrl: string | undefined;
   httpUrl: string;
@@ -130,7 +133,11 @@ const settings = (from: Secrets): Settings => {
     fomoToken: from.FOMO_ACCESS_TOKEN?.trim() || undefined,
     fomoPat: from.FOMO_PRIVY_PAT?.trim() || undefined,
     fomoRefresh: from.FOMO_REFRESH_TOKEN?.trim() || undefined,
-    dbPath: from.FOMOPULSE_DB?.trim() || "fomopulse.db",
+    // Under `bun test` the default is memory, never the file beside the checkout. bunfig's
+    // preload only applies when the run starts at the repo root, and a run started from a
+    // package directory — or from an editor's run-this-test — otherwise opens the real
+    // database and writes its fixtures into it. An explicit FOMOPULSE_DB still wins.
+    dbPath: from.FOMOPULSE_DB?.trim() || (underTest ? ":memory:" : "fomopulse.db"),
   };
 };
 
