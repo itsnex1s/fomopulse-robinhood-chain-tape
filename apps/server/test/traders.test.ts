@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { booksSpacing } from "../src/pnl.ts";
 import { retryInterval } from "../src/traders.ts";
 
 const REGULAR = 600_000;
@@ -25,4 +26,17 @@ test("a refusal stands the tick down for hours, whatever the other clocks say", 
   expect(retryInterval(600_000, 60_000, true, 0, 6 * hour)).toBe(6 * hour);
   // And it goes back to the ordinary pace once the wait is over.
   expect(retryInterval(600_000, 60_000, true, 0, 0)).toBe(600_000);
+});
+
+test("the books walk is spaced off its own cost, between a floor and a ceiling", () => {
+  const floor = 10 * 60_000;
+  const ceiling = 60 * 60_000;
+  // A quarter of a second, which is the walk at the size the tape is now: the floor decides.
+  expect(booksSpacing(240, floor, ceiling)).toBe(floor);
+  // Five and a half seconds, the walk over 900k fills: twenty minutes rather than ten.
+  expect(booksSpacing(5_433, floor, ceiling)).toBe(5_433 * 240);
+  // And nothing walks less often than the ceiling, however long it takes.
+  expect(booksSpacing(60_000, floor, ceiling)).toBe(ceiling);
+  // A database that has never walked has no measure to go on.
+  expect(booksSpacing(0, floor, ceiling)).toBe(floor);
 });

@@ -11,9 +11,12 @@ const TICK_MS = 15_000;
  *  counter that starts at zero again every time would never reach the tenth minute. */
 const SWEEP_MS = 2 * 60_000;
 const TRADERS_MS = 10 * 60_000;
-/** Walk the books every 10 minutes, in ms: one sequential pass over the whole tape, so it
- *  belongs on a clock rather than on a request. */
+/** How often to walk the books, in ms: one sequential pass over the whole tape, so it belongs
+ *  on a clock rather than on a request. The floor, rather than the interval — the pass is
+ *  spaced off its own cost, so it does not grow into the clock as the tape does. */
 const BOOKS_MS = 10 * 60_000;
+/** And how far apart it may end up: the pages say how old their numbers are. */
+const BOOKS_MAX_MS = 60 * 60_000;
 /** Drop what is past its horizon four times a day, in ms: the horizons are counted in
  *  days, so anything more often is the same delete over a range that has not moved. */
 const PRUNE_MS = 6 * 3_600_000;
@@ -231,7 +234,7 @@ export class Tape extends DurableObject<Env> {
     }
     // Behind the chain work: nothing on the tape waits for it, and it reads rows the steps
     // above have just written.
-    if (Date.now() - now < BUDGET_MS && (await this.due("books", BOOKS_MS, now)))
+    if (Date.now() - now < BUDGET_MS && (await this.due("books", app.booksInterval(BOOKS_MS, BOOKS_MAX_MS), now)))
       await this.within("books", until, app.books());
     // Last, and only with budget to spare: nothing waits on it, and the storage it frees is
     // measured in days rather than in the seconds a pass has.

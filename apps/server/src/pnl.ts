@@ -7,7 +7,7 @@ import {
   type StatWindow,
   saveStats,
 } from "./db/stats.ts";
-import { loadPrices, RESIDUE } from "./db.ts";
+import { getMeta, loadPrices, RESIDUE, setMeta } from "./db.ts";
 import { log } from "./log.ts";
 import { WINDOW_SECONDS } from "./window.ts";
 
@@ -204,9 +204,35 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
   });
   saveStats(rows);
   const ms = Date.now() - at;
+  // What the next interval is worked out from, kept in the database rather than in the
+  // process: on the object a walk and the scheduling of the next one are different isolates.
+  setMeta(WALK_MS, ms);
   log.info(`books: ${rows.length} wallets over ${fills.toLocaleString()} fills in ${ms}ms`);
   return { wallets: rows.length, fills, ms };
 }
+
+/** How long the last walk took, in ms. */
+const WALK_MS = "books:ms";
+/**
+ * How much of the clock the walk may have. It reads every fill on the tape in order — a sell
+ * is priced against the buys before it, so there is no page of it to read on its own — and on
+ * a fixed timer that cost grows with the tape while the timer does not.
+ *
+ * Chosen to do nothing at the size the tape is now and to bite as it grows: at 41k fills the
+ * walk is a quarter of a second and the floor decides, at 900k it is five and a half and the
+ * pass moves to every twenty minutes, and somewhere past two million the ceiling takes over.
+ * Rows read, not time, is what this is spent on — the object is awake either way.
+ */
+const SHARE = 240;
+/** The floor is what the books were on before this: often enough that a rank on screen is
+ *  from this ten minutes. The ceiling is what a reader will forgive, and the page says how
+ *  old its numbers are either way. */
+export const booksSpacing = (lastMs: number, floorMs: number, ceilingMs: number): number =>
+  Math.min(ceilingMs, Math.max(floorMs, lastMs * SHARE));
+
+/** The same, off the last walk's own measure; the first walk of a database has none. */
+export const booksInterval = (floorMs = 10 * 60_000, ceilingMs = 60 * 60_000): number =>
+  booksSpacing(Number(getMeta(WALK_MS) ?? 0), floorMs, ceilingMs);
 
 /** The same walk on a clock, for the process that is its own tape rather than an object. */
 export function startBooks(minutes = 10): void {
@@ -216,7 +242,7 @@ export function startBooks(minutes = 10): void {
     } catch (error) {
       log.error("books", error);
     }
-    setTimeout(tick, minutes * 60_000);
+    setTimeout(tick, booksInterval(minutes * 60_000));
   };
   tick();
 }

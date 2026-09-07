@@ -12,7 +12,7 @@ import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
 import { catchUp, head, mend, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
 import { SWEEP_BLOCKS, sweeper, unaccounted } from "../../server/src/ingest/sweep.ts";
 import { log } from "../../server/src/log.ts";
-import { rebuildStats } from "../../server/src/pnl.ts";
+import { booksInterval, rebuildStats } from "../../server/src/pnl.ts";
 import { refreshPrices } from "../../server/src/prices/feed.ts";
 import { sessionState } from "../../server/src/privy.ts";
 import { maintain, quoteBags, traderInterval } from "../../server/src/traders.ts";
@@ -202,7 +202,7 @@ export function prune(): Promise<void> {
 }
 export const quotes = quoteBags;
 export const traders = maintain;
-export { traderInterval };
+export { booksInterval, traderInterval };
 /** What the fomo session is doing: whether one was deployed at all, whether it can renew
  *  itself, and when the one in hand runs out. Without it a skipped leaderboard pass and a
  *  broken session look the same from outside. */
