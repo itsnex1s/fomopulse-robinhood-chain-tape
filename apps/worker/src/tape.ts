@@ -209,9 +209,12 @@ export class Tape extends DurableObject<Env> {
     const app = this.app!;
     const until = now + PASS_MS;
     app.follow();
+    // The transfers of a database written before they were packed onto their receipt, a slice
+    // at a time. Nothing below may replay a receipt until they are all where the replay looks.
+    const carried = await this.within("carry", until, app.carry());
     // Before anything is read: a deploy that changed how a fill is reconstructed or priced
     // replays the stored receipts once, so every read after it is of the corrected tape.
-    await this.within("repair", until, app.repair());
+    if (carried === true) await this.within("repair", until, app.repair());
     // A price a tick late turns an unpriced fill into a priced one, and dusting into a trade.
     await this.within("prices", until, app.prices());
     // Only when the socket cannot vouch for the gap since the last log; see app.resume.

@@ -4,13 +4,14 @@
  */
 import { toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
-import { prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
+import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
 import { cursor } from "../../server/src/ingest/cursor.ts";
 import { repairFills } from "../../server/src/ingest/rebuild.ts";
 import { onLogs } from "../../server/src/ingest/receipt.ts";
 import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
 import { catchUp, head, mend, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
 import { SWEEP_BLOCKS, sweeper, unaccounted } from "../../server/src/ingest/sweep.ts";
+import { limits } from "../../server/src/limits.ts";
 import { log } from "../../server/src/log.ts";
 import { booksInterval, rebuildStats } from "../../server/src/pnl.ts";
 import { refreshPrices } from "../../server/src/prices/feed.ts";
@@ -185,6 +186,13 @@ export async function sweep(): Promise<number> {
  * its own storage.
  */
 export const repair = (): Promise<unknown> => repairFills();
+
+/**
+ * One slice of the one-off carry of the old per-row transfers onto their receipts, true once
+ * the table is empty and dropped. Ahead of the replay in the pass, because a replay of a
+ * receipt whose transfers have not been carried yet would find nothing under it.
+ */
+export const carry = (): Promise<boolean> => Promise.resolve(carryTransfers(limits.migrate.passRows));
 
 export const prices = (): Promise<void> => refreshPrices(push);
 /** The books, rewritten from the fills. Off the live path: the ranking reads the table a

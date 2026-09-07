@@ -1,7 +1,7 @@
 import { bytesToHex, type Hex, hexToBytes } from "viem";
 import type { Kind, ParsedReceipt, Transfer } from "../ingest/reconstruct.ts";
 import { db } from "./connection.ts";
-import { packTransfers, unpackTransfers } from "./logs.ts";
+import { carryTransfersOntoReceipts, legacyTransfers, migrating, packTransfers, unpackTransfers } from "./logs.ts";
 
 /** What the chain said and what was learned about it: the transfers of every receipt that touched a tracked
  *  wallet, token decimals and names, and whether an address is a contract. A rebuild reads only this. */
@@ -55,7 +55,10 @@ export function getReceipt(tx: string): StoredReceipt | undefined {
 /** One receipt's transfers, unpacked. The replay reads them this way, by id, one row. */
 export const transfersOf = (receiptId: number): Transfer[] => {
   const row = stmt.logsOf.get(receiptId);
-  return row ? unpackTransfers(row.logs) : [];
+  if (!row) return [];
+  // An empty blob is a transaction with no transfers — or one the carry has not reached.
+  if (row.logs.length > 0 || !migrating()) return unpackTransfers(row.logs);
+  return legacyTransfers(db, receiptId);
 };
 
 /** Stored receipts, oldest first, without their transfers. Taken after an id and bounded so a replay can be
@@ -75,3 +78,8 @@ export const namelessTokens = (limit: number) => stmt.namelessTokens.all(limit).
 /** Whether an address is a contract or an account, learned once from `eth_getCode`. */
 export const saveKind = (address: string, kind: Kind) => stmt.saveKind.run(address, kind);
 export const loadKinds = () => new Map<string, Kind>(stmt.allKinds.all().map((r) => [r.address, r.kind]));
+
+/** One bounded slice of the transfer carry, true once there is none left. Reached through this
+ *  module because `logs.ts` takes the database as an argument rather than importing the
+ *  connection that imports it. */
+export const carryTransfers = (rows: number): boolean => carryTransfersOntoReceipts(db, rows);

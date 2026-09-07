@@ -41,6 +41,8 @@ export interface Limits {
     heldSeconds: number;
   };
   sweep: { blocks: number; marginBlocks: number };
+  /** How much of the one-off transfer carry a boot and a pass may each do; see db/logs.ts. */
+  migrate: { bootRows: number; passRows: number };
   feed: { batch: number; minLiquidityUsd: number; estimateMaxAgeSeconds: number; supplyMaxAgeSeconds: number };
   cache: { counted: Ladder; marked: Ladder; totalsSeconds: number; edge: Record<string, number> };
   budget: { rowsPerMonth: number; maxHold: number; warmupSeconds: number };
@@ -82,6 +84,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
   positive("retention", given.retention);
   positive("pace", given.pace);
   positive("sweep", given.sweep);
+  positive("migrate", given.migrate);
   positive("feed", given.feed);
   positive("budget", given.budget);
   positive("cache.edge", given.cache.edge);
@@ -97,6 +100,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
     retention: given.retention,
     pace: given.pace,
     sweep: given.sweep,
+    migrate: given.migrate,
     feed: given.feed,
     cache: {
       counted: ladder("cache.counted", given.cache.counted),

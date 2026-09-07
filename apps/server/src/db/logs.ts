@@ -80,44 +80,94 @@ function minimal(value: bigint): Uint8Array {
  * would leave the receipts standing with no evidence under them, and the next replay would walk
  * them, find nothing, and take the tape's fills with it.
  *
- * So they are carried across first, once, and only then is the table dropped. Returns how many
- * rows moved; a database that never had the table does no work and returns zero.
+ * So they are carried across first and only then is the table dropped — a bounded slice at a
+ * time, because a Durable Object isolate holds far less than a tape's worth of transfers and
+ * reading them all at once is not a slow migration but a reset object. Progress is a receipt id
+ * in `meta`, so a boot that is interrupted resumes where it stopped rather than starting again.
+ *
+ * Returns true once there is nothing left to carry.
  */
-export function carryTransfersOntoReceipts(db: Database): number {
-  const old = db
-    .query<{ n: number }, []>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'transfers'")
-    .get();
-  if (!old || old.n === 0) return 0;
-  const rows = db
-    .query<
-      {
-        receipt_id: number;
-        log_index: number;
-        token: Uint8Array;
-        sender: Uint8Array;
-        recipient: Uint8Array;
-        value: Uint8Array;
-      },
-      []
-    >("SELECT receipt_id, log_index, token, sender, recipient, value FROM transfers ORDER BY receipt_id, log_index")
-    .all();
+export function carryTransfersOntoReceipts(db: Database, rows: number): boolean {
+  if (!hasTransfers(db)) {
+    carrying = false;
+    return true;
+  }
+  carrying = true;
+  const from = Number(db.query<{ v: string }, [string]>(META_GET).get(CARRIED)?.v ?? 0);
+  const batch = db
+    .query<LegacyRow, [number, number]>(`${LEGACY} WHERE receipt_id > ?1 ORDER BY receipt_id, log_index LIMIT ?2`)
+    .all(from, rows);
+  if (batch.length === 0) {
+    db.exec("DROP TABLE transfers");
+    db.query(META_DROP).run(CARRIED);
+    carrying = false;
+    log.info("every transfer row is on its receipt; the table is gone");
+    return true;
+  }
+  // The last receipt in a full batch is the one the limit may have cut in half, so it is left
+  // for the next slice — unless it is the only one there, and then it is read whole instead.
+  const last = batch[batch.length - 1]!.receipt_id;
+  const partial = batch.length === rows;
+  const whole = partial ? batch.filter((row) => row.receipt_id !== last) : batch;
+  const carried =
+    whole.length > 0
+      ? whole
+      : db.query<LegacyRow, [number]>(`${LEGACY} WHERE receipt_id = ?1 ORDER BY log_index`).all(last);
+  const upTo = carried[carried.length - 1]!.receipt_id;
   const byReceipt = new Map<number, Transfer[]>();
-  for (const row of rows) {
+  for (const row of carried) {
     const list = byReceipt.get(row.receipt_id) ?? [];
-    list.push({
-      logIndex: row.log_index,
-      token: bytesToHex(row.token),
-      from: bytesToHex(row.sender),
-      to: bytesToHex(row.recipient),
-      value: bytesToBigInt(row.value),
-    });
+    list.push(legacy(row));
     byReceipt.set(row.receipt_id, list);
   }
   const set = db.query("UPDATE receipts SET logs = ? WHERE id = ?");
+  const mark = db.query(META_SET);
   db.transaction(() => {
     for (const [id, transfers] of byReceipt) set.run(packTransfers(transfers), id);
+    mark.run(CARRIED, String(upTo));
   })();
-  db.exec("DROP TABLE transfers");
-  if (rows.length > 0) log.info(`carried ${rows.length} transfer rows onto ${byReceipt.size} receipts`);
-  return rows.length;
+  log.info(`carried ${carried.length} transfer rows onto their receipts, up to receipt ${upTo}`);
+  return false;
 }
+
+/** A receipt the carry has not reached yet, read where its transfers still are. Without this a
+ *  replay running mid-migration would read an empty blob as a transaction that moved nothing. */
+export function legacyTransfers(db: Database, receiptId: number): Transfer[] {
+  return db.query<LegacyRow, [number]>(`${LEGACY} WHERE receipt_id = ?1 ORDER BY log_index`).all(receiptId).map(legacy);
+}
+
+/** True while the old table is still standing, so a receipt with no packed logs is read from it
+ *  rather than answered as a receipt with no transfers. */
+export const migrating = (): boolean => carrying;
+
+let carrying = false;
+
+/** How far the carry has got, kept in `meta` through raw SQL: this module is imported by the
+ *  connection that opens the database, and cannot import what is built on top of it. */
+const CARRIED = "transfers:carried";
+const META_GET = "SELECT value AS v FROM meta WHERE key = ?";
+const META_SET = "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)";
+const META_DROP = "DELETE FROM meta WHERE key = ?";
+const LEGACY = "SELECT receipt_id, log_index, token, sender, recipient, value FROM transfers";
+
+interface LegacyRow {
+  receipt_id: number;
+  log_index: number;
+  token: Uint8Array;
+  sender: Uint8Array;
+  recipient: Uint8Array;
+  value: Uint8Array;
+}
+
+const legacy = (row: LegacyRow): Transfer => ({
+  logIndex: row.log_index,
+  token: bytesToHex(row.token),
+  from: bytesToHex(row.sender),
+  to: bytesToHex(row.recipient),
+  value: bytesToBigInt(row.value),
+});
+
+const hasTransfers = (db: Database): boolean =>
+  (db
+    .query<{ n: number }, []>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'transfers'")
+    .get()?.n ?? 0) > 0;

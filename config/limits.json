@@ -39,6 +39,11 @@
     "supplyMaxAgeSeconds": 3600
   },
 
+  "migrate": {
+    "$comment": "Carrying the old per-row transfers onto the receipt that owns them. Bounded because the whole table at once is more memory than a Durable Object isolate has: bootRows is what opening the database may spend, so a cold object answers rather than being reset, and passRows is what one alarm may spend until the table is empty and dropped.",
+    "bootRows": 4000,
+    "passRows": 20000
+  },
   "cache": {
     "$comment": "Seconds an answer may be served from memory, by the window it covers. Never longer than the poll behind it: past that the work is already one pass per lifetime and the only thing a longer hold buys is a page slower than it looks. 'counted' is the readout, 'marked' the two pages carrying positions priced at the feed, 'edge' what the colo in front of the object holds.",
     "counted": { "1h": 5, "24h": 15, "7d": 60, "30d": 120, "all": 300 },

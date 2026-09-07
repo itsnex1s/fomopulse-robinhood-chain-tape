@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { env } from "../config.ts";
+import { limits } from "../limits.ts";
 import { carryTransfersOntoReceipts } from "./logs.ts";
 import { SCHEMA } from "./schema.ts";
 
@@ -27,4 +28,6 @@ try {
   // already there, which is the ordinary case
 }
 
-carryTransfersOntoReceipts(db);
+/** A slice of the one-off carry, small enough that opening the database stays an open rather
+ *  than a migration; the pass finishes the rest. See db/logs.ts. */
+carryTransfersOntoReceipts(db, limits.migrate.bootRows);

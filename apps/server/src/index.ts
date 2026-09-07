@@ -10,10 +10,11 @@ import { toFill } from "./api/fills.ts";
 import { site } from "./api/static.ts";
 import { broadcast, websocket } from "./api/ws.ts";
 import { env, wallets } from "./config.ts";
-import { setMeta, startPrune, tapeOfTx } from "./db.ts";
+import { carryTransfers, setMeta, startPrune, tapeOfTx } from "./db.ts";
 import { cursor } from "./ingest/cursor.ts";
 import type { StoredFill } from "./ingest/reconstruct.ts";
 import { catchUp, head } from "./ingest/subscribe.ts";
+import { limits } from "./limits.ts";
 import { type Emit, follow, poll } from "./live.ts";
 import { log } from "./log.ts";
 import { startBooks } from "./pnl.ts";
@@ -69,6 +70,9 @@ function serve() {
 }
 
 async function main(): Promise<void> {
+  // A database written before the transfers were packed onto their receipt is carried across
+  // before anything reads one. Bounded slices here too, so one loop covers both runtimes.
+  while (!carryTransfers(limits.migrate.passRows));
   const server = once ? undefined : serve();
   // Rows are read back from the database so the socket and the REST tape agree field for field.
   const push = (txs: string[]) => {

@@ -3,7 +3,13 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { type Hex, hexToBytes } from "viem";
-import { carryTransfersOntoReceipts, packTransfers, unpackTransfers } from "../src/db/logs.ts";
+import {
+  carryTransfersOntoReceipts,
+  legacyTransfers,
+  migrating,
+  packTransfers,
+  unpackTransfers,
+} from "../src/db/logs.ts";
 import type { Transfer } from "../src/ingest/reconstruct.ts";
 
 const address = (n: number): Hex => `0x${n.toString(16).padStart(40, "0")}`;
@@ -41,35 +47,90 @@ test("a blob written under another layout is refused rather than half-read", () 
   expect(() => unpackTransfers(cut.subarray(0, cut.length - 2))).toThrow(/truncated/);
 });
 
-test("a database from before the packing carries its transfers across and loses none", () => {
+const legacy = (): Database => {
   const db = new Database(":memory:");
   db.exec(`
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE receipts (id INTEGER PRIMARY KEY, tx BLOB NOT NULL UNIQUE, block INTEGER NOT NULL, ts INTEGER,
       logs BLOB NOT NULL DEFAULT x'');
     CREATE TABLE transfers (receipt_id INTEGER NOT NULL, log_index INTEGER NOT NULL,
       token BLOB NOT NULL, sender BLOB NOT NULL, recipient BLOB NOT NULL, value BLOB NOT NULL,
       PRIMARY KEY (receipt_id, log_index)) WITHOUT ROWID;
   `);
+  return db;
+};
+
+const b = (n: number) => hexToBytes(address(n));
+/** `n` transfers on the receipt, distinguishable by their log index and their amount. */
+const putReceipt = (db: Database, id: number, n: number): void => {
+  db.query("INSERT INTO receipts (id, tx, block, ts) VALUES (?, ?, ?, ?)").run(id, new Uint8Array([id]), id, id * 100);
+  const put = db.query("INSERT INTO transfers VALUES (?, ?, ?, ?, ?, ?)");
+  for (let i = 0; i < n; i++) put.run(id, i, b(9), b(1), b(2), hexToBytes(`0x${(id * 10 + i).toString(16)}`));
+};
+
+const logsOf = (db: Database, id: number) =>
+  unpackTransfers(db.query<{ logs: Uint8Array }, [number]>("SELECT logs FROM receipts WHERE id = ?").get(id)!.logs);
+
+test("a database from before the packing carries its transfers across and loses none", () => {
+  const db = legacy();
   db.query("INSERT INTO receipts (tx, block, ts) VALUES (?, ?, ?)").run(new Uint8Array([1]), 1, 100);
   db.query("INSERT INTO receipts (tx, block, ts) VALUES (?, ?, ?)").run(new Uint8Array([2]), 2, 200);
   const put = db.query("INSERT INTO transfers VALUES (?, ?, ?, ?, ?, ?)");
-  const b = (n: number) => hexToBytes(address(n));
   put.run(1, 0, b(9), b(1), b(2), hexToBytes("0x0de0b6b3a7640000")); // one whole token
   put.run(1, 7, b(9), b(2), b(3), hexToBytes("0x01"));
   put.run(2, 3, b(0xa), b(4), b(5), hexToBytes("0xffffffff"));
 
-  expect(carryTransfersOntoReceipts(db)).toBe(3);
-  // The table is gone, and a second open finds nothing left to do.
-  expect(carryTransfersOntoReceipts(db)).toBe(0);
+  expect(carryTransfersOntoReceipts(db, 1_000)).toBe(false);
+  expect(migrating()).toBe(true);
+  // The next slice finds nothing left, drops the table, and says so.
+  expect(carryTransfersOntoReceipts(db, 1_000)).toBe(true);
+  expect(migrating()).toBe(false);
+  expect(carryTransfersOntoReceipts(db, 1_000)).toBe(true);
 
-  const logsOf = (id: number) =>
-    unpackTransfers(db.query<{ logs: Uint8Array }, [number]>("SELECT logs FROM receipts WHERE id = ?").get(id)!.logs);
-  expect(logsOf(1)).toEqual([
+  expect(logsOf(db, 1)).toEqual([
     { logIndex: 0, token: address(9), from: address(1), to: address(2), value: 10n ** 18n },
     { logIndex: 7, token: address(9), from: address(2), to: address(3), value: 1n },
   ]);
-  expect(logsOf(2)).toEqual([
+  expect(logsOf(db, 2)).toEqual([
     { logIndex: 3, token: address(0xa), from: address(4), to: address(5), value: 0xffffffffn },
   ]);
+  db.close();
+});
+
+test("a slice never leaves a receipt half carried, and picks up where it stopped", () => {
+  const db = legacy();
+  for (const id of [1, 2, 3]) putReceipt(db, id, 2);
+  // Three rows a slice against two-transfer receipts: every slice ends mid-receipt.
+  let slices = 0;
+  while (!carryTransfersOntoReceipts(db, 3)) {
+    slices++;
+    // Whatever has been written is whole: a receipt has both its transfers or neither.
+    for (const id of [1, 2, 3]) expect([0, 2]).toContain(logsOf(db, id).length);
+    expect(slices).toBeLessThan(10);
+  }
+  expect(slices).toBeGreaterThan(1);
+  for (const id of [1, 2, 3])
+    expect(logsOf(db, id).map((t) => t.value)).toEqual([BigInt(id * 10), BigInt(id * 10 + 1)]);
+  db.close();
+});
+
+test("a receipt with more transfers than a whole slice is still carried", () => {
+  const db = legacy();
+  putReceipt(db, 1, 5);
+  putReceipt(db, 2, 1);
+  while (!carryTransfersOntoReceipts(db, 2));
+  expect(logsOf(db, 1)).toHaveLength(5);
+  expect(logsOf(db, 2)).toHaveLength(1);
+  db.close();
+});
+
+test("a receipt the carry has not reached is read where its transfers still are", () => {
+  const db = legacy();
+  putReceipt(db, 1, 2);
+  putReceipt(db, 2, 2);
+  carryTransfersOntoReceipts(db, 2);
+  // Receipt 1 is packed; receipt 2 is not, and its blob is empty rather than its transfers.
+  expect(logsOf(db, 2)).toEqual([]);
+  expect(legacyTransfers(db, 2).map((t) => t.value)).toEqual([20n, 21n]);
   db.close();
 });
