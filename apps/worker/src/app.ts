@@ -12,6 +12,7 @@ import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
 import { catchUp, head, mend, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
 import { SWEEP_BLOCKS, sweeper, unaccounted } from "../../server/src/ingest/sweep.ts";
 import { log } from "../../server/src/log.ts";
+import { rebuildStats } from "../../server/src/pnl.ts";
 import { refreshPrices } from "../../server/src/prices/feed.ts";
 import { sessionState } from "../../server/src/privy.ts";
 import { maintain, quoteBags, traderInterval } from "../../server/src/traders.ts";
@@ -186,6 +187,12 @@ export async function sweep(): Promise<number> {
 export const repair = (): Promise<unknown> => repairFills();
 
 export const prices = (): Promise<void> => refreshPrices(push);
+/** The books, rewritten from the fills. Off the live path: the ranking reads the table a
+ *  job keeps up to date, not a walk every open tab would start. */
+export const books = (): Promise<void> => {
+  rebuildStats();
+  return Promise.resolve();
+};
 /** Drops what is past its horizon; see db/prune.ts for how long each row is kept. */
 export function prune(): Promise<void> {
   const gone = pruneStorage(Math.floor(Date.now() / 1000));

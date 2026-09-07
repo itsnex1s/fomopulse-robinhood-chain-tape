@@ -16,6 +16,7 @@ import type { StoredFill } from "./ingest/reconstruct.ts";
 import { catchUp, head } from "./ingest/subscribe.ts";
 import { type Emit, follow, poll } from "./live.ts";
 import { log } from "./log.ts";
+import { startBooks } from "./pnl.ts";
 import { startBagQuotes } from "./prices/bags.ts";
 import { startPrices } from "./prices/feed.ts";
 import { startTraders } from "./traders.ts";
@@ -92,6 +93,8 @@ async function main(): Promise<void> {
   // The bags are quoted from the same feed, on a clock of their own.
   startBagQuotes();
   startPrune();
+  // What this tape made of the traders, walked from its own fills.
+  startBooks();
   // PnL, avatars and holdings come from fomo's own leaderboard; we only store them.
   startTraders();
 

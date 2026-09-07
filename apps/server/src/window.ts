@@ -14,6 +14,6 @@ export function since(window: string | undefined): number {
   return seconds === undefined ? 0 : Math.floor(Date.now() / 1000) - seconds;
 }
 
-/** fomo publishes PnL by day, week, month and all-time; the hour window reads the day's. */
+/** The books are kept by day, week, month and all time; the hour window reads the day's. */
 export const pnlWindow = (window: string): "24h" | "7d" | "30d" | "all" =>
   window === "7d" || window === "30d" || window === "all" ? window : "24h";

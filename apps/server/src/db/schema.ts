@@ -76,6 +76,21 @@ export const SCHEMA = `
     holders INTEGER NOT NULL, value REAL NOT NULL, pnl REAL,
     PRIMARY KEY (token, network, ts)
   ) WITHOUT ROWID;
+  /**
+   * The average-cost books, walked over every fill and written by a job: the walk has to be
+   * sequential, since a sell is priced against the cost of the buys before it. A trip counts
+   * in the window it closed in; what is open has no window and is marked now; free is what
+   * selling never-paid-for inventory brought in, which is not profit on anything.
+   */
+  CREATE TABLE IF NOT EXISTS trader_stats (
+    wallet TEXT PRIMARY KEY,
+    realized_24h REAL NOT NULL, realized_7d REAL NOT NULL, realized_30d REAL NOT NULL, realized_all REAL NOT NULL,
+    trips_24h INTEGER NOT NULL, trips_7d INTEGER NOT NULL, trips_30d INTEGER NOT NULL, trips_all INTEGER NOT NULL,
+    wins_24h INTEGER NOT NULL, wins_7d INTEGER NOT NULL, wins_30d INTEGER NOT NULL, wins_all INTEGER NOT NULL,
+    unrealized REAL NOT NULL, open_value REAL NOT NULL, open_tokens INTEGER NOT NULL, free REAL NOT NULL,
+    buys INTEGER NOT NULL, sells INTEGER NOT NULL, volume REAL NOT NULL, tokens INTEGER NOT NULL,
+    first_ts INTEGER, last_ts INTEGER, computed_at INTEGER NOT NULL
+  );
   /** Small named values that survive a restart: the resume cursor, the feed's source. */
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
