@@ -7,7 +7,7 @@ import {
   type StatWindow,
   saveStats,
 } from "./db/stats.ts";
-import { loadPrices } from "./db.ts";
+import { loadPrices, RESIDUE } from "./db.ts";
 import { log } from "./log.ts";
 import { WINDOW_SECONDS } from "./window.ts";
 
@@ -18,6 +18,9 @@ const PAGE = 20_000;
 interface Book {
   amount: number;
   cost: number;
+  /** What has passed through the position, so what is left of it can be told from the
+   *  rounding: see RESIDUE. */
+  gross: number;
   /** Held but never paid for; sold, it is proceeds rather than profit. */
   given: number;
 }
@@ -64,6 +67,7 @@ function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, num
     if (fill.usd !== null && fill.dust === 0) {
       stat.volume += fill.usd;
       book.amount += fill.amount;
+      book.gross += fill.amount;
       book.cost += fill.usd;
     } else {
       book.given += fill.amount;
@@ -87,6 +91,7 @@ function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, num
   if (paid > 0) {
     const cost = (book.cost * paid) / book.amount;
     book.amount -= paid;
+    book.gross += paid;
     book.cost -= cost;
     left -= paid;
     // The tokens leave the book whether or not anything priced the sale — a position the
@@ -135,7 +140,7 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
       const key = `${fill.wallet}:${fill.token}`;
       let book = books.get(key);
       if (book === undefined) {
-        book = { amount: 0, cost: 0, given: 0 };
+        book = { amount: 0, cost: 0, gross: 0, given: 0 };
         books.set(key, book);
       }
       apply(fill, stat, book, windows);
@@ -156,7 +161,8 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
   for (const [key, book] of books) {
     const [wallet, token] = key.split(":") as [string, string];
     tokens.set(wallet, (tokens.get(wallet) ?? 0) + 1);
-    if (book.amount <= 0) continue;
+    // What buys and sells that cancelled left behind is rounding, not a position.
+    if (book.amount <= book.gross * RESIDUE) continue;
     if (!priceOf.has(token)) priceOf.set(token, marks.get(token) ?? lastPriceOf(token));
     const price = priceOf.get(token);
     if (price === undefined) continue;

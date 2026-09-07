@@ -160,10 +160,12 @@ test("a tape bag counts the wallets still long; a sale of tokens bought before t
  * do the whole pass to write nothing.
  */
 test("the hour is snapshotted once, however often the quote pass comes round", () => {
-  expect(recordBagHistory(now, CHAIN)).toBe(true);
-  expect(recordBagHistory(now + 60, CHAIN)).toBe(false);
+  // Off the hour itself, so a run in the last minute of one does not step into the next.
+  const hour = now - (now % 3_600);
+  expect(recordBagHistory(hour + 10, CHAIN)).toBe(true);
+  expect(recordBagHistory(hour + 70, CHAIN)).toBe(false);
   // A new hour is a new snapshot.
-  expect(recordBagHistory(now + 3_600, CHAIN)).toBe(true);
+  expect(recordBagHistory(hour + 3_600, CHAIN)).toBe(true);
 });
 
 /**
@@ -194,4 +196,41 @@ test("a page of bags wider than one query still finds every bag's holders", () =
   const held = tapeHolders(tokens);
   expect(held.size).toBe(tokens.length);
   for (const token of tokens) expect(held.get(token)).toEqual([{ wallet: holder.address, value: 1 }]);
+});
+
+/**
+ * Buys and sells that cancel exactly leave a rounding residue behind, and `amount > 0` read
+ * it as a position: wallets holding 1e-17 of a token counted as holders and put their whole
+ * cost into the bag's average price.
+ */
+test("what buys and sells left behind as rounding is not a position", async () => {
+  const [closed, holding] = [wallets[10]!, wallets[11]!];
+  const token = "0xc105111111111111111111111111111111111111";
+  saveToken(token, 18, "SHUT", "ShutCoin");
+  savePrice(token, { price: 1, liquidity: 1_000, change24: 0, pairCreatedAt: null, pair: null }, now);
+  insertFills([
+    // In and out for the same tokens, less a trillionth of what went through.
+    fill({ tx: "0xshut-in", block: 400, ts: now - 50, wallet: closed.address, token, amount: 1_000, usd: 500 }),
+    fill({
+      tx: "0xshut-out",
+      block: 401,
+      ts: now - 40,
+      wallet: closed.address,
+      token,
+      side: "sell",
+      amount: 1_000 - 1e-13,
+      usd: 600,
+      price: 0.6,
+    }),
+    // And one wallet that actually kept something.
+    fill({ tx: "0xshut-hold", block: 402, ts: now - 30, wallet: holding.address, token, amount: 10, usd: 10 }),
+  ]);
+
+  // A limit of its own: answers are held for fifteen seconds per query, and the whole file
+  // runs inside one of those.
+  const bags = (await (await api.request("/api/bags?window=1h&limit=180")).json()) as Record<string, unknown>[];
+  const row = bags.find((bag) => bag.token === token)!;
+  // Both wallets traded it, only one is long, and the average cost is that one's alone.
+  expect(row).toMatchObject({ holders: 1, amount: 10, traders_in: 2, pnl: 0 });
+  expect((row.holders_list as { handle: string }[]).map((h) => h.handle)).toEqual([holding.handle]);
 });

@@ -4,36 +4,46 @@ import { getMeta, setMeta } from "./meta.ts";
 
 /** What the tracked traders are sitting in, by token: net positions off this tape's fills,
  *  the feed's quote against them, and the token's flow inside the window. */
+
+/**
+ * What counts as still holding something. Buys and sells that cancel exactly leave a
+ * rounding residue behind — doubles carry sixteen digits, so a wallet that bought and sold
+ * the same tokens ends on 1e-17 of one — and `amount > 0` reads that as a position: it put
+ * wallets holding nothing in the holder count and, worse, their whole cost into the bag's
+ * average price. A trillionth of what passed through the position is nobody's holding.
+ */
+export const RESIDUE = 1e-12;
+
+/** Net position per wallet and token, dusting left out; `gross` is what passed through it. */
+const POSITIONS = `SELECT wallet, token,
+         SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
+         SUM(amount) AS gross,
+         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN usd ELSE 0 END) AS bought_usd,
+         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN amount ELSE 0 END) AS bought_amount
+         FROM fills WHERE dust = 0 GROUP BY wallet, token`;
+/** Still long, as against left holding the rounding. */
+const LONG = `amount > gross * ${RESIDUE}`;
 const stmt = {
   /** One row per token per hour, so a window can be compared against its own start.
    *  Stamped on the hour with OR IGNORE: a job on any clock still leaves one row an hour. */
   recordBagHistory: db.query(
-    `WITH pos AS (
-       SELECT wallet, token,
-         SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN usd ELSE 0 END) AS bought_usd,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN amount ELSE 0 END) AS bought_amount
-         FROM fills WHERE dust = 0 GROUP BY wallet, token
-     )
+    `WITH pos AS (${POSITIONS})
      INSERT OR IGNORE INTO bag_hours (token, network, ts, holders, value, pnl)
      SELECT pos.token, ?2, ?1, COUNT(*), SUM(pos.amount * p.price_usd),
             SUM(CASE WHEN pos.bought_amount > 0
                      THEN pos.amount * (p.price_usd - pos.bought_usd / pos.bought_amount) END)
        FROM pos JOIN prices p ON p.token = pos.token
-      WHERE pos.amount > 0
+      WHERE ${LONG}
       GROUP BY pos.token`,
   ),
   pruneBagHistory: db.query("DELETE FROM bag_hours WHERE ts < ?"),
   /** Held tokens still without a name, largest bag first, for the chain to be asked about. */
   unnamedBags: db.query<{ token: string }, [number]>(
-    `WITH pos AS (
-       SELECT wallet, token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
-         FROM fills WHERE dust = 0 GROUP BY wallet, token
-     )
+    `WITH pos AS (${POSITIONS})
      SELECT pos.token AS token FROM pos
        LEFT JOIN tokens t ON t.address = pos.token
        LEFT JOIN prices p ON p.token = pos.token
-      WHERE pos.amount > 0 AND t.symbol IS NULL
+      WHERE ${LONG} AND t.symbol IS NULL
       GROUP BY pos.token
       ORDER BY SUM(pos.amount) * COALESCE(MAX(p.price_usd), 0) DESC
       LIMIT ?1`,
@@ -41,11 +51,8 @@ const stmt = {
   /** Tokens a tracked wallet is still long. A grouped pass over every fill, which is why
    *  the answer is kept — see `tapeTokens` below. */
   heldTokens: db.query<{ token: string }, []>(
-    `WITH pos AS (
-       SELECT token, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
-         FROM fills WHERE dust = 0 GROUP BY wallet, token
-     )
-     SELECT DISTINCT token FROM pos WHERE amount > 0`,
+    `WITH pos AS (${POSITIONS})
+     SELECT DISTINCT token FROM pos WHERE ${LONG}`,
   ),
   /** When each token was last quoted. One row per token the tape has ever priced, which is
    *  a few hundred against a tape of millions of fills, and it is the half that moves. */
@@ -54,20 +61,14 @@ const stmt = {
    *  tape began nets negative and would hide what the others hold. `pnl` is average cost across the priced
    *  buys, no lot accounting. The window bounds the flow columns only. Parameters: window start, row limit. */
   tapeBags: db.query<BagRow, [number, number]>(
-    `WITH pos AS (
-       SELECT wallet, token,
-         SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN usd ELSE 0 END) AS bought_usd,
-         SUM(CASE WHEN side = 'buy' AND usd IS NOT NULL THEN amount ELSE 0 END) AS bought_amount
-         FROM fills WHERE dust = 0 GROUP BY wallet, token
-     ),
+    `WITH pos AS (${POSITIONS}),
      bag AS (
        SELECT token, COUNT(*) AS holders, SUM(amount) AS amount,
               SUM(bought_usd) AS bought_usd, SUM(bought_amount) AS bought_amount
-         FROM pos WHERE amount > 0 GROUP BY token
+         FROM pos WHERE ${LONG} GROUP BY token
      ),
      top AS (
-       SELECT token, MAX(amount) AS amount, wallet AS holder FROM pos WHERE amount > 0 GROUP BY token
+       SELECT token, MAX(amount) AS amount, wallet AS holder FROM pos WHERE ${LONG} GROUP BY token
      ),
      flow AS (
        SELECT token, COUNT(*) AS fills, COALESCE(SUM(side = 'buy'), 0) AS buys,
@@ -188,14 +189,16 @@ export function tapeHolders(tokens: string[], per = 8): Map<string, Holder[]> {
     const rows = db
       .query<{ token: string; wallet: string; value: number | null }, (string | number)[]>(
         `WITH pos AS (
-           SELECT token, wallet, SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount
+           SELECT token, wallet,
+                  SUM(CASE WHEN side = 'buy' THEN amount ELSE -amount END) AS amount,
+                  SUM(amount) AS gross
              FROM fills WHERE dust = 0 AND token IN (${batch.map(() => "?").join(", ")})
             GROUP BY token, wallet
          ),
          ranked AS (
            SELECT token, wallet, amount,
                   ROW_NUMBER() OVER (PARTITION BY token ORDER BY amount DESC) AS place
-             FROM pos WHERE amount > 0
+             FROM pos WHERE ${LONG}
          )
          SELECT r.token AS token, r.wallet AS wallet, r.amount * p.price_usd AS value
            FROM ranked r LEFT JOIN prices p ON p.token = r.token
