@@ -84,17 +84,23 @@ function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, num
   let left = fill.amount;
 
   const paid = Math.min(left, book.amount);
-  if (paid > 0 && price !== null) {
+  if (paid > 0) {
     const cost = (book.cost * paid) / book.amount;
-    const gain = paid * price - cost;
     book.amount -= paid;
     book.cost -= cost;
     left -= paid;
-    for (const [window, from] of windows) {
-      if (fill.ts < from) continue;
-      stat.realized[window] += gain;
-      stat.trips[window]++;
-      if (gain > 0) stat.wins[window]++;
+    // The tokens leave the book whether or not anything priced the sale — a position the
+    // wallet has sold out of is closed, and holding it open marks it against a mark it no
+    // longer has. The trip is only scored when the proceeds are known; scoring an unpriced
+    // sale as zero would book a loss the size of the whole position.
+    if (price !== null) {
+      const gain = paid * price - cost;
+      for (const [window, from] of windows) {
+        if (fill.ts < from) continue;
+        stat.realized[window] += gain;
+        stat.trips[window]++;
+        if (gain > 0) stat.wins[window]++;
+      }
     }
   }
   if (left > 0 && price !== null) {

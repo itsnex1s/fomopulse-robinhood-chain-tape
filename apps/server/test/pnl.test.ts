@@ -140,3 +140,32 @@ test("a handout leaving again takes nothing from the inventory the wallet paid f
   expect(after.realized_all).toBeCloseTo(100, 6);
   expect(after.open_tokens).toBe(0);
 });
+
+test("a sale nothing could price still closes the position", () => {
+  // The feed had no quote when this one landed, so the fill carries no dollars. The tokens
+  // are gone either way: holding the position open marked a wallet against a position it
+  // had sold out of, and the bags page, which nets amounts, showed it holding nothing.
+  const gone = "0xb00c555555555555555555555555555555555555";
+  const quiet = wallets[41]!.address;
+  insertFills([
+    fill({ tx: "0xb040", wallet: quiet, token: gone, side: "buy", amount: 100, usd: 500, price: 5, ts: now - 300 }),
+    fill({
+      tx: "0xb041",
+      wallet: quiet,
+      token: gone,
+      side: "sell",
+      amount: 100,
+      usd: null,
+      price: null,
+      priced: "unpriced",
+      ts: now - 100,
+    }),
+  ]);
+  const book = booksOf(quiet)!;
+  expect(book.open_tokens).toBe(0);
+  expect(book.open_value).toBe(0);
+  expect(book.unrealized).toBe(0);
+  // Nothing priced the sale, so there is no trip to score either way — not a win, not a loss.
+  expect(book.trips_all).toBe(0);
+  expect(book.realized_all).toBe(0);
+});
