@@ -114,11 +114,11 @@ export const useTape = create<TapeState>((set) => ({
   flush: () => set((state) => ({ ...merge(state, state.pending), pending: [] })),
 }));
 
-export type View = "tape" | "traders" | "bags";
+export type View = "tape" | "traders" | "bags" | "discover";
 
 /** The order the keys walk them in: 1–5 for the windows, [ and ] for the views. */
 export const WINDOWS: Window[] = ["1h", "24h", "7d", "30d", "all"];
-export const VIEWS: View[] = ["tape", "traders", "bags"];
+export const VIEWS: View[] = ["tape", "traders", "bags", "discover"];
 
 interface UiState {
   window: Window;

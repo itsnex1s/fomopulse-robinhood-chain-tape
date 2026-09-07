@@ -1,5 +1,5 @@
 import fomoConfig from "../../../config/fomo.json" with { type: "json" };
-import type { Bag, Fill, Overview, Status, Trader, Window } from "./types.ts";
+import type { Bag, Discover, Fill, Overview, Status, Trader, Window } from "./types.ts";
 
 /** The service the tracked handles and avatars come from, named once in config/fomo.json. */
 const FOMO = fomoConfig.site;
@@ -22,6 +22,9 @@ export const getTape = (window: Window, stocks: boolean, dust: boolean, before?:
 export const getTraders = (window: Window) => json<Trader[]>(`/api/traders?window=${window}&limit=300`);
 
 export const getOverview = (window: Window) => json<Overview>(`/api/overview?window=${window}`);
+
+/** The new pools, cut by the server and sorted here; the window says what "just now" means on the page. */
+export const getDiscover = (window: Window) => json<Discover[]>(`/api/discover?window=${window}&limit=200`);
 
 /** Sorting happens on the client, so it asks for the whole list rather than the top of one ordering. */
 export const getBags = (window: Window) => json<Bag[]>(`/api/bags?window=${window}&limit=200`);

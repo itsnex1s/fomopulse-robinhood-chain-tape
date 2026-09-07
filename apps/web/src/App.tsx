@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { getStatus, getTape } from "./api.ts";
 import { Bags } from "./Bags.tsx";
+import { Discover } from "./Discover.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { useTape, useUi } from "./store.ts";
 import { Tape } from "./Tape.tsx";
@@ -60,6 +61,7 @@ export default function App() {
         )}
         {view === "traders" && <Traders />}
         {view === "bags" && <Bags />}
+        {view === "discover" && <Discover />}
         {view === "tape" && pending > 0 && (
           <button
             type="button"
