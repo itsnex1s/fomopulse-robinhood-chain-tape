@@ -31,3 +31,12 @@ export function sweeper(window = SWEEP_BLOCKS, margin = SWEEP_MARGIN) {
     },
   };
 }
+
+/**
+ * How many of these fills sit past everything the socket has accounted for. A fill below
+ * the mark is a log dropped in passing, which is what the sweep is for; a fill above it is
+ * a block the socket should have delivered and never did, and that is a subscription that
+ * has stopped without going down. Both runtimes read it the same way.
+ */
+export const unaccounted = (fills: readonly { block: number }[], delivered: bigint): number =>
+  fills.reduce((n, fill) => (BigInt(fill.block) > delivered ? n + 1 : n), 0);

@@ -10,7 +10,7 @@ import { repairFills } from "../../server/src/ingest/rebuild.ts";
 import { onLogs } from "../../server/src/ingest/receipt.ts";
 import type { StoredFill } from "../../server/src/ingest/reconstruct.ts";
 import { catchUp, head, openSocketWith, scanChunk, watch } from "../../server/src/ingest/subscribe.ts";
-import { SWEEP_BLOCKS, sweeper } from "../../server/src/ingest/sweep.ts";
+import { SWEEP_BLOCKS, sweeper, unaccounted } from "../../server/src/ingest/sweep.ts";
 import { log } from "../../server/src/log.ts";
 import { refreshPrices } from "../../server/src/prices/feed.ts";
 import { sessionState } from "../../server/src/privy.ts";
@@ -41,6 +41,15 @@ let following = false;
 let behind = true;
 /** The chain head as the socket last reported it, from the heartbeat. */
 let seenHead = { block: 0n, at: 0 };
+/**
+ * How far the socket has accounted for the chain: the head when it subscribed, then every
+ * log it delivered. The heartbeat cannot tell a working subscription from a forgotten one —
+ * a provider answers `eth_blockNumber` either way — so the sweep does it instead, by
+ * checking whether what it finds sits past this mark. See ingest/sweep.ts's `unaccounted`.
+ */
+let delivered = 0n;
+/** Closes the socket this isolate opened, for the case where it has to be given up on. */
+let unfollow: (() => void) | undefined;
 const recent = sweeper();
 
 /** Rows are read back from the database, so the socket and the REST tape agree field for field. */
@@ -62,6 +71,8 @@ export function boot(secrets: Secrets, send: Publish): void {
   // Durable Object" — so a new object forgets the old socket and opens its own.
   following = false;
   behind = true;
+  delivered = 0n;
+  unfollow = undefined;
 }
 
 /** Follow the chain. Idempotent: an object that is already subscribed stays as it is. */
@@ -71,10 +82,22 @@ export function follow(): void {
   // Whatever landed while there was no socket is read over HTTP once, on the next tick.
   behind = true;
   setMeta("source", "websocket");
-  // watch() closes its own socket before it reports down, so there is nothing to hold on to.
-  watch(
+  // Where this socket takes over. Without it a subscription that never delivers its first
+  // log leaves the mark at zero, and that is the one case worth catching.
+  void head().then(
+    (block) => {
+      if (block > delivered) delivered = block;
+    },
+    () => {},
+  );
+  // watch() closes its own socket before it reports down, so the handle is only for the
+  // case it cannot report: a subscription that stopped while the connection stayed up.
+  unfollow = watch(
     settings.wsUrl,
-    (entry) => void onLogs([entry], emit),
+    (entry) => {
+      if (entry.blockNumber > delivered) delivered = entry.blockNumber;
+      void onLogs([entry], emit);
+    },
     (why) => {
       following = false;
       behind = true;
@@ -131,8 +154,32 @@ export async function sweep(): Promise<number> {
   // cut off partway through re-reads the same oldest blocks every time and never the newest.
   const span = SWEEP_BLOCKS < scanChunk() * SWEEP_CHUNKS ? SWEEP_BLOCKS : scanChunk() * SWEEP_CHUNKS;
   const [from, to] = recent.range(await tip(), span);
-  const found = await at("scan", catchUp(from, to, emit));
+  // Counted against the live mark rather than one taken before the scan: a block the socket
+  // delivers while the sweep is reading it must not be held against it.
+  let past = 0;
+  const found = await at(
+    "scan",
+    catchUp(from, to, (fills) => {
+      past += unaccounted(fills, delivered);
+      emit(fills);
+    }),
+  );
   recent.done(to);
+  if (past > 0) {
+    log.warn(`the sweep found ${past} fills past everything the socket delivered; resubscribing`);
+    // The old socket is not coming back on its own — it never reported down — so it is closed
+    // here rather than left to run alongside its replacement. A socket belonging to an object
+    // the platform has since put away refuses to close; there is nothing to do about that but
+    // let it go.
+    try {
+      unfollow?.();
+    } catch {
+      // an object that is no longer ours to touch
+    }
+    unfollow = undefined;
+    following = false;
+    behind = true;
+  }
   return found;
 }
 

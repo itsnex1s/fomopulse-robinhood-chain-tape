@@ -2,7 +2,7 @@ import { cursor } from "./ingest/cursor.ts";
 import { onLogs } from "./ingest/receipt.ts";
 import type { StoredFill } from "./ingest/reconstruct.ts";
 import { catchUp, head, watch } from "./ingest/subscribe.ts";
-import { sweeper } from "./ingest/sweep.ts";
+import { sweeper, unaccounted } from "./ingest/sweep.ts";
 import { log } from "./log.ts";
 import { sleep } from "./sleep.ts";
 
@@ -15,14 +15,6 @@ const STABLE_MS = 60_000;
 const MAX_BACKOFF_MS = 30_000;
 
 export type Emit = (fills: StoredFill[]) => void;
-
-/**
- * How many of these fills sit past everything the socket has accounted for. A fill below
- * the mark is a log dropped in passing, which the sweep exists to pick up; a fill above it
- * is a block the socket should have delivered and never did.
- */
-export const unaccounted = (fills: readonly { block: number }[], delivered: bigint): number =>
-  fills.reduce((n, fill) => (BigInt(fill.block) > delivered ? n + 1 : n), 0);
 
 /** Everything between the cursor and the head, through the same path as a cold start. Returns how many fills were new. */
 export async function resume(emit: Emit): Promise<number> {
