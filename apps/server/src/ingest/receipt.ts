@@ -1,4 +1,5 @@
 import type { Hex } from "viem";
+import { measure } from "../api/budget.ts";
 import { env, QUOTE_TOKENS, rpc, WALLET_SET } from "../config.ts";
 import { deleteFill, getReceipt, insertFills, saveReceipt } from "../db.ts";
 import { log } from "../log.ts";
@@ -119,7 +120,7 @@ async function readAndStore(tx: Hex, block: bigint, emit: (fills: StoredFill[]) 
   const ofBlock = Promise.all([timestampOf(block), ethUsd()]);
   ofBlock.catch(() => {}); // rethrown below; this only stops an unhandled rejection if the receipt fails first
 
-  const stored = getReceipt(tx);
+  const stored = measure("ingest:receipt read", () => getReceipt(tx));
   const receipt: ParsedReceipt = stored ?? parse((await fetchReceipt(tx)) ?? unavailable());
 
   // Independent lookups; the chain ones leave as one JSON-RPC batch.
@@ -131,7 +132,7 @@ async function readAndStore(tx: Hex, block: bigint, emit: (fills: StoredFill[]) 
   ]);
 
   // Stored with its timestamp, so a rebuild can replay it even if no fill survives the rules.
-  if (!stored || stored.ts === null) saveReceipt(receipt, ts);
+  if (!stored || stored.ts === null) measure("ingest:receipt write", () => saveReceipt(receipt, ts));
 
   const fills = reconstruct(receipt, {
     wallets: WALLET_SET,
@@ -143,7 +144,7 @@ async function readAndStore(tx: Hex, block: bigint, emit: (fills: StoredFill[]) 
     prices,
     isStock,
   });
-  const fresh = insertFills(fills);
+  const fresh = measure("ingest:fills", () => insertFills(fills));
   if (fresh.length > 0) {
     sample(ts);
     emit(fresh);

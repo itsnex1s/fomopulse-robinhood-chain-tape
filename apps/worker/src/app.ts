@@ -3,7 +3,7 @@
  * has bound that storage, so the database this pulls in opens where the object lives.
  */
 
-import { meterRows } from "../../server/src/api/budget.ts";
+import { measure, meterRows } from "../../server/src/api/budget.ts";
 import { toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
@@ -56,7 +56,7 @@ const recent = sweeper();
 
 /** Rows are read back from the database, so the socket and the REST tape agree field for field. */
 const push = (txs: string[]): void => {
-  const rows = [...new Set(txs)].flatMap(tapeOfTx).map(toFill);
+  const rows = measure("ingest:broadcast", () => [...new Set(txs)].flatMap(tapeOfTx).map(toFill));
   if (rows.length > 0) publish(rows);
 };
 

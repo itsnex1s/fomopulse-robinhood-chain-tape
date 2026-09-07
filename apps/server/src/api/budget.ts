@@ -47,6 +47,31 @@ export const spend = (walked: number): void => {
 /** Rows walked since the counting began, the platform's number where there is one. */
 export const walked = (): number => (meter ? meter() - mark : rows);
 
+/**
+ * Rows walked inside one named piece of work, where the platform counts them at all. Rows read
+ * is most of the bill and the readers are the small half of it, so without this the only way to
+ * tell whose rows they are is to reason about the queries — which says which of them could be
+ * expensive, never which of them is.
+ *
+ * Synchronous on purpose: every query here is, and a synchronous stretch cannot be interleaved
+ * with another, so the count belongs to the work that asked for it and to nothing else.
+ */
+const parts = new Map<string, { rows: number; runs: number }>();
+export function measure<T>(label: string, work: () => T): T {
+  if (meter === undefined) return work();
+  const before = meter();
+  try {
+    return work();
+  } finally {
+    const part = parts.get(label) ?? { rows: 0, runs: 0 };
+    part.rows += meter() - before;
+    part.runs += 1;
+    parts.set(label, part);
+  }
+}
+
+export const measured = (): Record<string, { rows: number; runs: number }> => Object.fromEntries(parts);
+
 /** Rows this month is on course to walk, at the rate seen so far. */
 export function projected(now = Date.now()): number {
   const elapsed = now - since;
@@ -77,6 +102,7 @@ export const budget = (now = Date.now()) => ({
 /** Testing only: the counter is process-wide and every test file shares one. */
 export const resetBudget = (at = Date.now()): void => {
   rows = 0;
+  parts.clear();
   meter = undefined;
   mark = 0;
   since = at;

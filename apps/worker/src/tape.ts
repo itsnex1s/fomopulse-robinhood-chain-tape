@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { measured } from "../../server/src/api/budget.ts";
 import { limits, ms } from "../../server/src/limits.ts";
 import { log } from "../../server/src/log.ts";
 import type { Env } from "./env.ts";
@@ -87,6 +88,15 @@ export class Tape extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     await this.booted;
     this.bind();
+    const opened = rowsRead();
+    try {
+      return await this.serve(request);
+    } finally {
+      this.spent["fetch (all of it)"] = (this.spent["fetch (all of it)"] ?? 0) + (rowsRead() - opened);
+    }
+  }
+
+  private async serve(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/ws") return this.reader();
     await this.ensureRunning();
@@ -103,6 +113,9 @@ export class Tape extends DurableObject<Env> {
         // What the answers have walked against what the whole object has: the rest is the
         // chain arriving, which nothing else here counts.
         spent: { ...this.spent, everything: rowsRead() },
+        // And what the pieces below a step walked, with how many times each ran: a query that
+        // is cheap once and runs a thousand times looks the same from above as one that is not.
+        measured: measured(),
         session: this.app!.session(),
         // The object's SQLite stops at ten gigabytes, so how far off that is belongs here.
         bytes: bytesUsed(),
@@ -181,8 +194,16 @@ export class Tape extends DurableObject<Env> {
    * One step of the pass, given what is left of its budget. Abandoning the promise does not
    * stop the work — nothing here can be cancelled — but the pass goes on without it.
    */
-  private async within<T>(step: string, until: number, work: Promise<T>): Promise<T | undefined> {
+  private async within<T>(step: string, until: number, work: () => Promise<T>): Promise<T | undefined> {
     this.beat.step = step;
+    const left = until - Date.now();
+    if (left <= 0) {
+      this.failed(step, new Error("no time left in the pass"));
+      return undefined;
+    }
+    // Started here rather than handed in already running: a step given a promise has already
+    // begun before the budget above is looked at, and everything it does before its first
+    // await — which for the books walk is the whole of it — happens outside this count.
     const walked = rowsRead();
     const count = () => {
       const rows = rowsRead() - walked;
@@ -191,12 +212,6 @@ export class Tape extends DurableObject<Env> {
       // arriving and nothing else. A pass this one did not run still spent its rows.
       this.spent[`pass:${step}`] = (this.spent[`pass:${step}`] ?? 0) + rows;
     };
-    const left = until - Date.now();
-    if (left <= 0) {
-      this.failed(step, new Error("no time left in the pass"));
-      count();
-      return undefined;
-    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const capped = new Promise<undefined>((resolve) => {
       timer = setTimeout(() => {
@@ -204,7 +219,8 @@ export class Tape extends DurableObject<Env> {
         resolve(undefined);
       }, left);
     });
-    const done = work.catch((error) => {
+    // Wrapped, so a step that throws before its first await is caught here like any other.
+    const done = (async () => work())().catch((error) => {
       this.failed(step, error);
       return undefined;
     });
@@ -249,6 +265,15 @@ export class Tape extends DurableObject<Env> {
   private async tick(by: string): Promise<void> {
     await this.booted;
     this.bind();
+    const opened = rowsRead();
+    try {
+      await this.steps(by);
+    } finally {
+      this.spent["tick (all of it)"] = (this.spent["tick (all of it)"] ?? 0) + (rowsRead() - opened);
+    }
+  }
+
+  private async steps(by: string): Promise<void> {
     const now = Date.now();
     this.beat = { ran: now, took: 0, error: null, ticks: this.beat.ticks + 1, by, step: "start", rows: {} };
     const app = this.app!;
@@ -256,31 +281,31 @@ export class Tape extends DurableObject<Env> {
     app.follow();
     // The transfers of a database written before they were packed onto their receipt, a slice
     // at a time. Nothing below may replay a receipt until they are all where the replay looks.
-    const carried = await this.within("carry", until, app.carry());
+    const carried = await this.within("carry", until, () => app.carry());
     // Before anything is read: a deploy that changed how a fill is reconstructed or priced
     // replays the stored receipts once, so every read after it is of the corrected tape.
-    if (carried === true) await this.within("repair", until, app.repair());
+    if (carried === true) await this.within("repair", until, () => app.repair());
     // A price a tick late turns an unpriced fill into a priced one, and dusting into a trade.
-    await this.within("prices", until, app.prices());
+    await this.within("prices", until, () => app.prices());
     // Only when the socket cannot vouch for the gap since the last log; see app.resume.
-    await this.within("catch-up", until, app.resume());
+    await this.within("catch-up", until, () => app.resume());
     // fomo first: four requests that take seconds, ahead of a sweep that can spend the rest
     // of the pass against an endpoint that paces us.
     const every = app.traderInterval(TRADERS_MS, TRADERS_COLD_MS);
-    if (await this.due("traders", every, now)) await this.within("traders", until, app.traders());
+    if (await this.due("traders", every, now)) await this.within("traders", until, () => app.traders());
     if (Date.now() - now < BUDGET_MS && (await this.due("sweep", SWEEP_MS, now))) {
-      const found = (await this.within("sweep", until, app.sweep())) ?? 0;
+      const found = (await this.within("sweep", until, () => app.sweep())) ?? 0;
       if (found > 0) log.warn(`the sweep found ${found} fills the socket did not deliver`);
-      await this.within("bag quotes", until, app.quotes());
+      await this.within("bag quotes", until, () => app.quotes());
     }
     // Behind the chain work: nothing on the tape waits for it, and it reads rows the steps
     // above have just written.
     if (Date.now() - now < BUDGET_MS && (await this.due("books", app.booksInterval(BOOKS_MS, BOOKS_MAX_MS), now)))
-      await this.within("books", until, app.books());
+      await this.within("books", until, () => app.books());
     // Last, and only with budget to spare: nothing waits on it, and the storage it frees is
     // measured in days rather than in the seconds a pass has.
     if (Date.now() - now < BUDGET_MS && (await this.due("prune", PRUNE_MS, now)))
-      await this.within("prune", until, app.prune());
+      await this.within("prune", until, () => app.prune());
     this.beat.step = "done";
     this.beat.took = Date.now() - now;
   }
