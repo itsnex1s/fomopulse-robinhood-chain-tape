@@ -100,3 +100,41 @@ test("what is still held is marked, and what has no price at all is left out of 
   expect(book.trips_all).toBe(0);
   expect(book.realized_all).toBe(0);
 });
+
+test("a handout leaving again takes nothing from the inventory the wallet paid for", () => {
+  // Bought a hundred for a hundred dollars, then a spray of the same token went back out
+  // priced at three. Counting that as a sale booked a $200 win and emptied a position the
+  // wallet still holds — the bags page, which nets the amounts, kept showing all hundred.
+  const held = "0xb00c444444444444444444444444444444444444";
+  const seller = wallets[15]!.address;
+  insertFills([
+    fill({ tx: "0xb030", wallet: seller, token: held, side: "buy", amount: 100, usd: 100, price: 1, ts: now - 300 }),
+    fill({
+      tx: "0xb031",
+      wallet: seller,
+      token: held,
+      side: "sell",
+      amount: 100,
+      usd: 300,
+      price: 3,
+      dust: HANDOUT,
+      ts: now - 100,
+    }),
+  ]);
+  const book = booksOf(seller)!;
+  expect(book.trips_all).toBe(0);
+  expect(book.wins_all).toBe(0);
+  expect(book.realized_all).toBe(0);
+  expect(book.volume).toBe(100); // the purchase only; a handout is not turnover
+  expect(book.open_tokens).toBe(1);
+
+  // And the inventory really is still there: selling it for real afterwards books the trip
+  // against the hundred dollars it cost, which it cannot do if the handout consumed it.
+  insertFills([
+    fill({ tx: "0xb032", wallet: seller, token: held, side: "sell", amount: 100, usd: 200, price: 2, ts: now - 50 }),
+  ]);
+  const after = booksOf(seller)!;
+  expect(after.trips_all).toBe(1);
+  expect(after.realized_all).toBeCloseTo(100, 6);
+  expect(after.open_tokens).toBe(0);
+});

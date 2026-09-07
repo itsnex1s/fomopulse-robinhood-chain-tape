@@ -72,6 +72,13 @@ function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, num
   }
 
   stat.sells++;
+  // A handout going back out is not a sale, whatever the token is worth by the time it
+  // leaves. It takes from what was handed over, never from inventory the wallet paid for,
+  // and it is not a round trip: the buy side already files a handout under `given`.
+  if (fill.dust !== 0) {
+    book.given = book.given > fill.amount ? book.given - fill.amount : 0;
+    return;
+  }
   if (fill.usd !== null) stat.volume += fill.usd;
   const price = fill.amount > 0 && fill.usd !== null ? fill.usd / fill.amount : null;
   let left = fill.amount;
