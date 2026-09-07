@@ -106,7 +106,9 @@ test("a handout leaving again takes nothing from the inventory the wallet paid f
   // priced at three. Counting that as a sale booked a $200 win and emptied a position the
   // wallet still holds — the bags page, which nets the amounts, kept showing all hundred.
   const held = "0xb00c444444444444444444444444444444444444";
-  const seller = wallets[15]!.address;
+  // An index no other test file writes: the whole suite shares one in-memory database,
+  // so a wallet used twice makes these counts read another file's fills.
+  const seller = wallets[40]!.address;
   insertFills([
     fill({ tx: "0xb030", wallet: seller, token: held, side: "buy", amount: 100, usd: 100, price: 1, ts: now - 300 }),
     fill({
