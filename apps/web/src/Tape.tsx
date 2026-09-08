@@ -85,7 +85,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
           <Hover card={() => <TokenCard fill={fill} explorer={explorer} slug={slug} />}>
             <Avatar src={fill.image_url} seed={fill.token} size={12} />
             <a
-              className={`ml-1.5 inline-block max-w-[22vw] truncate align-bottom hover:text-accent sm:max-w-none ${thin ? "underline decoration-dotted decoration-dimmer underline-offset-2" : ""}`}
+              className={`ml-1.5 inline-block max-w-[22vw] truncate align-bottom hover:text-accent sm:max-w-[16ch] ${thin ? "underline decoration-dotted decoration-dimmer underline-offset-2" : ""}`}
               href={fill.pair_url ?? tokenUrl(slug, fill.token)}
               target="_blank"
               rel="noreferrer"
@@ -136,7 +136,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
               rel="noreferrer"
             >
               <Avatar src={fill.avatar_url} seed={fill.wallet} />
-              <span className="max-w-[20vw] truncate sm:max-w-none">{fill.handle}</span>
+              <span className="max-w-[20vw] truncate sm:max-w-[18ch]">{fill.handle}</span>
               {fill.verified === 1 && <span className="text-[9px] text-dimmer">✓</span>}
             </a>
           </Hover>

@@ -22,6 +22,10 @@ const stmt = {
      ON CONFLICT (address) DO UPDATE SET decimals = excluded.decimals,
        symbol = COALESCE(excluded.symbol, tokens.symbol), name = COALESCE(excluded.name, tokens.name)`,
   ),
+  trimSymbols: db.query<unknown, [number, number]>(
+    "UPDATE tokens SET symbol = substr(symbol, 1, ?) WHERE length(symbol) > ?",
+  ),
+  trimNames: db.query<unknown, [number, number]>("UPDATE tokens SET name = substr(name, 1, ?) WHERE length(name) > ?"),
   allDecimals: db.query<{ address: string; decimals: number }, []>("SELECT address, decimals FROM tokens"),
   namelessTokens: db.query<{ address: string }, [number]>(
     "SELECT address FROM tokens WHERE symbol IS NULL OR name IS NULL LIMIT ?",
@@ -69,8 +73,25 @@ export const allReceipts = (after = 0, limit = Number.MAX_SAFE_INTEGER) =>
 export const dateReceipt = (tx: string, ts: number) => stmt.dateReceipt.run(ts, bytes(tx));
 export const receiptCounts = () => stmt.receiptCount.get()!;
 
+/**
+ * A ticker and a name are whatever the contract returns, and a contract has returned nine
+ * thousand characters of one. Long enough for anything real, short enough that no token
+ * decides how wide a column is.
+ */
+const SYMBOL_CHARS = 24;
+const NAME_CHARS = 48;
+const label = (text: string | undefined, chars: number): string | null =>
+  text === undefined ? null : text.slice(0, chars);
+
 export const saveToken = (address: string, decimals: number, symbol?: string, name?: string) =>
-  stmt.saveToken.run(address, decimals, symbol ?? null, name ?? null);
+  stmt.saveToken.run(address, decimals, label(symbol, SYMBOL_CHARS), label(name, NAME_CHARS));
+
+/** The same cut over what was stored before there was one. Matches nothing after the first run. */
+export function trimLabels(): void {
+  stmt.trimSymbols.run(SYMBOL_CHARS, SYMBOL_CHARS);
+  stmt.trimNames.run(NAME_CHARS, NAME_CHARS);
+}
+trimLabels();
 export const loadDecimals = () => new Map(stmt.allDecimals.all().map((r) => [r.address, r.decimals]));
 /** Tokens seen while the RPC was refusing calls, so their symbol never came back. */
 export const namelessTokens = (limit: number) => stmt.namelessTokens.all(limit).map((r) => r.address);
