@@ -53,6 +53,12 @@ export function Traders() {
   const active = matching.filter((t) => t.fills > 0).length;
   const label = rows[0]?.pnl_window ?? window;
 
+  // Said as Bags says it. Falling through to the table, the first paint drew an empty tbody
+  // under "0 traders", which reads as an answer rather than as a question still in flight.
+  if (data === undefined) return <p className="px-3 py-4 text-dimmer">loading…</p>;
+  if (data.length === 0)
+    return <p className="px-3 py-4 text-dim">No traders yet — the books are walked once the tape has fills.</p>;
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line px-3 py-1 text-[10px] text-dimmer">
