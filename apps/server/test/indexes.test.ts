@@ -124,3 +124,10 @@ test("the window's biggest buy is the first row of an index, not the window sort
   expect(detail).toContain("fills_big_buys");
   expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
 });
+
+test("the tape's first and last fill are two seeks, not a walk of the tape", () => {
+  const detail = plan("SELECT (SELECT MIN(ts) FROM fills) AS a, (SELECT MAX(ts) FROM fills) AS b");
+  // Asked together with COUNT(*), as they were, the same statement has to walk every row.
+  expect(detail).toContain("fills_ts");
+  expect(detail).not.toContain("SCAN fills");
+});

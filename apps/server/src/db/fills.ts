@@ -39,9 +39,24 @@ const stmt = {
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
        FROM fills WHERE ts >= ? GROUP BY wallet`,
   ),
-  counts: db.query<{ trades: number; first_ts: number | null; last_ts: number | null }, []>(
-    "SELECT COUNT(*) AS trades, MIN(ts) AS first_ts, MAX(ts) AS last_ts FROM fills",
+  total: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM fills"),
+  // Separate from the count on purpose: alone, each of these is one seek down fills_ts, while
+  // the same query that also counts has to walk every row to do it.
+  edges: db.query<{ first_ts: number | null; last_ts: number | null }, []>(
+    "SELECT (SELECT MIN(ts) FROM fills) AS first_ts, (SELECT MAX(ts) FROM fills) AS last_ts",
   ),
+};
+
+/**
+ * How many fills the tape holds. Counting them is a walk of every one, and the readout asks
+ * for it on a timer, so it is counted once when this module loads and moved by hand after
+ * that — the same shape as the decimals and kinds the ingest keeps in memory. A restart
+ * counts again, which is also how any drift is put right.
+ */
+let held = -1;
+/** Fills added or dropped outside `insertFills`: pruning, a reorg, a replay. */
+export const noteFills = (delta: number): void => {
+  if (held >= 0) held += delta;
 };
 
 /** Returns the fills that were new; the primary key drops replays after a reconnect. */
@@ -84,6 +99,7 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
       new Map(fresh.filter((f) => !pardoned.has(f.token)).map((f) => [`${f.wallet}\u0000${f.token}`, f])).values(),
     );
   })();
+  noteFills(fresh.length);
   // Outside the transaction: it changes nothing on disk, only what the quote pass believes
   // about which tokens are held. Buys only — a sell is not somebody going long.
   noteHeld(fresh.filter((f) => f.side === "buy").map((f) => f.token));
@@ -94,13 +110,16 @@ export function insertFills(fills: StoredFill[]): StoredFill[] {
  *  have to be rewritten, and after the delete there is nothing left to name it. */
 export function deleteFill(tx: string, logIndex: number): void {
   const token = stmt.tokenOfFill.get(tx, logIndex)?.token;
-  stmt.deleteFill.run(tx, logIndex);
+  noteFills(-stmt.deleteFill.run(tx, logIndex).changes);
   if (token !== undefined) refreshPositions([token]);
 }
 /** A quote arriving after the fills it belongs to; the price pass calls this with its own horizon. */
 export const stampSupply = (token: string, notBefore: number) => stmt.stampSupply.run(token, notBefore);
 export const tapeStats = (sinceTs: number) => stmt.tapeStats.all(sinceTs);
-export const counts = () => stmt.counts.get()!;
+export function counts(): { trades: number; first_ts: number | null; last_ts: number | null } {
+  if (held < 0) held = stmt.total.get()!.n;
+  return { trades: held, ...stmt.edges.get()! };
+}
 
 /** The feed's card and the two signals read off the tape go to the client as they are. */
 type Card = Pick<

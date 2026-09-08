@@ -2,6 +2,7 @@ import { QUOTE_TOKENS } from "../config.ts";
 import { limits, ms } from "../limits.ts";
 import { log } from "../log.ts";
 import { db } from "./connection.ts";
+import { noteFills } from "./fills.ts";
 import { rebuildPositions } from "./positions.ts";
 
 /** Days, from config/limits.json: a Durable Object's SQLite stops at ten gigabytes, so nothing is
@@ -38,6 +39,7 @@ export function prune(now: number): { fills: number; receipts: number; quotes: n
     const receiptsBefore = now - RECEIPT_DAYS * 86_400;
     gone.receipts = stmt.receipts.run(receiptsBefore).changes;
     gone.fills = stmt.fills.run(now - FILL_DAYS * 86_400).changes;
+    noteFills(-gone.fills);
     // After the fills, so a quote is dropped in the same pass as the last fill that kept it.
     gone.quotes = stmt.quotes.run(...QUOTE_TOKENS.keys()).changes;
   })();

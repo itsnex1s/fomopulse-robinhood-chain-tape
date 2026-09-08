@@ -9,6 +9,7 @@ import {
   loadDecimals,
   loadKinds,
   loadPrices,
+  noteFills,
   rebuildPositions,
   setMeta,
   transfersOf,
@@ -98,7 +99,7 @@ export async function rebuildFills(
   for (const r of receipts) {
     const ts = dated.get(r.tx);
     if (ts === undefined) continue;
-    dropFillsOf.run(r.tx);
+    noteFills(-dropFillsOf.run(r.tx).changes);
     const receipt = { tx: r.tx, block: r.block, transfers: transfersOf(r.id) };
     const ctx = { wallets: WALLET_SET, quote: QUOTE_TOKENS, decimals, kinds, prices, isStock, ts };
     fills += insertFills(reconstruct(receipt, ctx)).length;
