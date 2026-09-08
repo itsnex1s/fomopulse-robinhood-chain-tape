@@ -184,7 +184,7 @@ export interface TapeRow extends Card {
 }
 
 /** One row of the tape with everything the screen says about it. `new_position` is the wallet's first buy of
- *  the token on this tape; `others` is how many other tracked wallets bought it in the hour before. */
+ *  the token on this tape. The crowd count is not here; see `crowd`. */
 const TAPE_SELECT = `
   SELECT f.rowid AS id, f.ts, f.block, f.tx, f.wallet, f.token, t.symbol, t.name, f.side,
          f.amount, f.usd, f.price, f.priced, f.dust,
@@ -196,27 +196,22 @@ const TAPE_SELECT = `
          f.price * COALESCE(f.supply, p.market_cap / NULLIF(p.price_usd, 0)) AS mcap_at,
          CASE WHEN f.side = 'buy' AND NOT EXISTS (
            SELECT 1 FROM fills q WHERE q.wallet = f.wallet AND q.token = f.token AND q.side = 'buy' AND q.ts < f.ts
-         ) THEN 1 ELSE 0 END AS new_position,
-         (SELECT COUNT(DISTINCT q.wallet) FROM fills q
-           WHERE q.token = f.token AND q.side = 'buy' AND q.dust = 0 AND q.wallet != f.wallet
-             AND q.ts BETWEEN f.ts - 3600 AND f.ts) AS others
+         ) THEN 1 ELSE 0 END AS new_position
     FROM fills f LEFT JOIN tokens t ON t.address = f.token LEFT JOIN prices p ON p.token = f.token`;
 
 const TAPE_ORDER = "ORDER BY f.ts DESC, f.rowid DESC LIMIT ?";
-const tapeStmt = db.query<TapeRow, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ? ${TAPE_ORDER}`);
+const tapeStmt = db.query<Row, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ? ${TAPE_ORDER}`);
 /** The same read with the dusting left out. Two statements rather than one with a flag: filtering here keeps
- *  the correlated subqueries off rows the screen would hide anyway. */
-const tapeCleanStmt = db.query<TapeRow, [number, number]>(
-  `${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${TAPE_ORDER}`,
-);
-const tapeByTxStmt = db.query<TapeRow, [string]>(`${TAPE_SELECT} WHERE f.tx = ? ORDER BY f.rowid`);
+ *  the correlated subquery off rows the screen would hide anyway. */
+const tapeCleanStmt = db.query<Row, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${TAPE_ORDER}`);
+const tapeByTxStmt = db.query<Row, [string]>(`${TAPE_SELECT} WHERE f.tx = ? ORDER BY f.rowid`);
 /** The same two reads continued from a row already on the screen. The cursor is time and id together, not time
  *  alone: a busy second carries a dozen fills, and a cursor on `ts` would repeat or skip the rest of it. */
 const OLDER = "AND (f.ts < ? OR (f.ts = ? AND f.rowid < ?))";
-const olderStmt = db.query<TapeRow, [number, number, number, number, number]>(
+const olderStmt = db.query<Row, [number, number, number, number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? ${OLDER} ${TAPE_ORDER}`,
 );
-const olderCleanStmt = db.query<TapeRow, [number, number, number, number, number]>(
+const olderCleanStmt = db.query<Row, [number, number, number, number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${OLDER} ${TAPE_ORDER}`,
 );
 
@@ -226,12 +221,69 @@ export interface TapeCursor {
   id: number;
 }
 
+/** A page as the statements read it: everything about a fill except what only its neighbours know. */
+type Row = Omit<TapeRow, "others">;
+
+/** How far back a fill looks for company. Part of what the badge on the row means, not a limit. */
+const CROWD_SECONDS = 3600;
+/**
+ * The longest stretch of tape one crowd read covers. The read is bounded by the span it is
+ * asked for, and a page of a quiet window can span weeks; chunking keeps it bounded by the
+ * page instead. Four hours is long enough that a busy page is one read.
+ */
+const CROWD_SPAN = 4 * 3600;
+
+/** Every buy that could count as company for a page: its tokens, over its span and the hour before it. */
+const crowdStmt = db.query<{ token: string; wallet: string; ts: number }, [string, number, number]>(
+  `SELECT q.token AS token, q.wallet AS wallet, q.ts AS ts
+     FROM json_each(?1) j
+     CROSS JOIN fills q ON q.token = j.value
+    WHERE q.side = 'buy' AND q.dust = 0 AND q.ts BETWEEN ?2 AND ?3`,
+);
+
+/**
+ * How many other tracked wallets bought each row's token in the hour before it. Asked once for
+ * the page rather than once per row: the hours a page covers overlap almost entirely, and read
+ * row by row this one number was the whole cost of the tape.
+ */
+function crowd(rows: Row[]): TapeRow[] {
+  const out: TapeRow[] = [];
+  for (let from = 0; from < rows.length; ) {
+    let to = from + 1;
+    while (to < rows.length && Math.abs(rows[from]!.ts - rows[to]!.ts) <= CROWD_SPAN) to += 1;
+    const page = rows.slice(from, to);
+    const tokens = [...new Set(page.map((r) => r.token))];
+    let first = page[0]!.ts;
+    let last = first;
+    for (const r of page) {
+      if (r.ts < first) first = r.ts;
+      if (r.ts > last) last = r.ts;
+    }
+    const buys = new Map<string, { wallet: string; ts: number }[]>();
+    for (const b of crowdStmt.all(JSON.stringify(tokens), first - CROWD_SECONDS, last)) {
+      const list = buys.get(b.token);
+      if (list) list.push(b);
+      else buys.set(b.token, [b]);
+    }
+    for (const row of page) {
+      const seen = new Set<string>();
+      for (const b of buys.get(row.token) ?? [])
+        if (b.ts >= row.ts - CROWD_SECONDS && b.ts <= row.ts && b.wallet !== row.wallet) seen.add(b.wallet);
+      out.push({ ...row, others: seen.size });
+    }
+    from = to;
+  }
+  return out;
+}
+
 export const tape = (sinceTs: number, limit: number, withDust = true, before?: TapeCursor): TapeRow[] =>
-  before
-    ? (withDust ? olderStmt : olderCleanStmt).all(sinceTs, before.ts, before.ts, before.id, limit)
-    : (withDust ? tapeStmt : tapeCleanStmt).all(sinceTs, limit);
+  crowd(
+    before
+      ? (withDust ? olderStmt : olderCleanStmt).all(sinceTs, before.ts, before.ts, before.id, limit)
+      : (withDust ? tapeStmt : tapeCleanStmt).all(sinceTs, limit),
+  );
 /** The stored rows of one transaction, so a broadcast carries the same shape as the REST tape. */
-export const tapeOfTx = (tx: string): TapeRow[] => tapeByTxStmt.all(tx);
+export const tapeOfTx = (tx: string): TapeRow[] => crowd(tapeByTxStmt.all(tx));
 
 export interface OverviewRow {
   fills: number;

@@ -147,3 +147,19 @@ test("the traders' aggregate is planned two ways, and each is the plan it is cho
   expect(seeked).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
   expect(seeked).not.toContain("SCAN fills");
 });
+
+test("the crowd behind a page is one seek per token, not a walk of the tape", () => {
+  // The count each tape row carries, read for the page at once. Left to itself the planner
+  // has no idea how many tokens the list holds and can decide to walk the fills instead.
+  const detail = plan(
+    `SELECT q.token AS token, q.wallet AS wallet, q.ts AS ts
+       FROM json_each(?1) j
+       CROSS JOIN fills q ON q.token = j.value
+      WHERE q.side = 'buy' AND q.dust = 0 AND q.ts BETWEEN ?2 AND ?3`,
+    "[]",
+    0,
+    0,
+  );
+  expect(detail).toContain("SEARCH q USING INDEX fills_token_ts (token=? AND ts>? AND ts<?)");
+  expect(detail).not.toContain("SCAN q");
+});
