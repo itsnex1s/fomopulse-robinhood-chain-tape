@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import "./support/memory.ts";
 import type { Hex } from "viem";
-import { db, tape } from "../src/db.ts";
+import { db, deleteFill, tape } from "../src/db.ts";
 import { fill, insertFills, now, wallets } from "./support/api.ts";
 
 const HOUR = 3_600;
@@ -88,25 +88,29 @@ test("the page's count is the count the row would have been asked for on its own
   // Wallets of this test's own, not the tracked list: the books walk every fill in the shared
   // database, and two hundred of them on a tracked wallet is another test's answer changed.
   const crowdWallets = [1, 2, 3, 4, 5, 6].map((n): Hex => `0xbeef${n.toString(16).padStart(36, "0")}`);
-  insertFills(
-    Array.from({ length: 200 }, (_, i) => {
-      const wallet = crowdWallets[next(crowdWallets.length)]!;
-      return fill({
-        tx: `0xcrowd-spread-${i}`,
-        wallet,
-        token: tokens[next(tokens.length)]!,
-        ts: now - next(10 * HOUR),
-        side: next(3) === 0 ? "sell" : "buy",
-        dust: next(4) === 0 ? 1 : 0,
-        priced: "estimate",
-      });
+  const spread = Array.from({ length: 200 }, (_, i) =>
+    fill({
+      tx: `0xcrowd-spread-${i}`,
+      wallet: crowdWallets[next(crowdWallets.length)]!,
+      token: tokens[next(tokens.length)]!,
+      ts: now - next(10 * HOUR),
+      side: next(3) === 0 ? "sell" : "buy",
+      dust: next(4) === 0 ? 1 : 0,
+      priced: "estimate",
     }),
   );
+  insertFills(spread);
 
-  const rows = tape(0, 400);
-  expect(rows.filter((r) => (tokens as string[]).includes(r.token))).not.toBeEmpty();
-  // Otherwise the comparison below is two columns of zeroes agreeing with each other.
-  expect(rows.filter((r) => r.others > 0).length).toBeGreaterThan(20);
-  for (const row of rows)
-    expect([row.tx, row.others]).toEqual([row.tx, own.get(row.token, row.wallet, row.ts - HOUR, row.ts)!.n]);
+  try {
+    const rows = tape(0, 400);
+    expect(rows.filter((r) => (tokens as string[]).includes(r.token))).not.toBeEmpty();
+    // Otherwise the comparison below is two columns of zeroes agreeing with each other.
+    expect(rows.filter((r) => r.others > 0).length).toBeGreaterThan(20);
+    for (const row of rows)
+      expect([row.tx, row.others]).toEqual([row.tx, own.get(row.token, row.wallet, row.ts - HOUR, row.ts)!.n]);
+  } finally {
+    // The suite shares one database and one tape, and a page of it is every test's page:
+    // two hundred fills at the top of it push another test's oldest row off the end.
+    for (const f of spread) deleteFill(f.tx, f.logIndex);
+  }
 });
