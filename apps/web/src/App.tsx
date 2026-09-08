@@ -34,6 +34,9 @@ export default function App() {
   const tape = useQuery({
     queryKey: ["tape", window, stocks, dust],
     queryFn: () => getTape(window, stocks, dust),
+    // Only the screen that shows it asks for it. A reader who opened a link to the bags was
+    // fetching four hundred fills they never see, and paying twenty thousand rows for them.
+    enabled: view === "tape",
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
