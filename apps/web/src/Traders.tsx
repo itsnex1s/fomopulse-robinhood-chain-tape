@@ -39,16 +39,18 @@ export function Traders() {
     placeholderData: keepPreviousData,
   });
 
+  // Both counts come off the same set. Taken from `data`, "N of them traded" described the
+  // whole roster while the number beside it described the filter, so one handle typed into
+  // the box read as "1 tracked trader, 118 of them traded in this window".
+  const matching = (data ?? []).filter((t) => !filter || t.handle.toLowerCase().includes(filter));
   const rows = sorted(
-    (data ?? [])
-      .filter((t) => !filter || t.handle.toLowerCase().includes(filter))
-      .filter((t) => !activeOnly || t.fills > 0),
+    matching.filter((t) => !activeOnly || t.fills > 0),
     sort,
     BY,
   );
   const top = Math.max(...rows.map((t) => t.tape_volume), 1);
   const stamp = rows.find((t) => t.stats_at)?.stats_at;
-  const active = (data ?? []).filter((t) => t.fills > 0).length;
+  const active = matching.filter((t) => t.fills > 0).length;
   const label = rows[0]?.pnl_window ?? window;
 
   return (
