@@ -35,10 +35,16 @@ const stmt = {
         AND EXISTS (SELECT 1 FROM fills q WHERE q.token = ?1 AND (q.priced = 'cash_leg' OR q.side = 'sell'))`,
   ),
   /** Fills per wallet in a window — the part of a trader's activity we saw ourselves. */
-  // INDEXED BY, because left to itself the planner takes the index that groups for free and
-  // walks the whole of it: the window in the WHERE then costs nothing and saves nothing. Down
-  // fills_ts it reads the window and sorts three hundred wallets, which is the cheap half.
-  tapeStats: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
+  // The same aggregate, planned two ways; `tapeStats` picks between them. Left to itself the
+  // planner takes the index that groups for free and walks all of it, so a window costs a
+  // comparison per fill and saves nothing. Forced down fills_ts it reads the window and sorts
+  // three hundred wallets instead — cheaper while the window is a slice, dearer once it is
+  // the whole tape, because then it has paid for the sort and read everything anyway.
+  perWalletGrouped: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
+    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
+       FROM fills WHERE ts >= ? GROUP BY wallet`,
+  ),
+  perWalletSeeked: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
        FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
   ),
@@ -118,7 +124,20 @@ export function deleteFill(tx: string, logIndex: number): void {
 }
 /** A quote arriving after the fills it belongs to; the price pass calls this with its own horizon. */
 export const stampSupply = (token: string, notBefore: number) => stmt.stampSupply.run(token, notBefore);
-export const tapeStats = (sinceTs: number) => stmt.tapeStats.all(sinceTs);
+/**
+ * Whether a window is a small enough slice of the tape to be worth seeking into. Past about
+ * half of it the grouped walk is the cheaper plan, measured against the object: a day of tape
+ * costs forty thousand rows seeked and sixty-seven thousand grouped, a week a hundred and
+ * thirty-five thousand seeked and the same sixty-seven thousand grouped.
+ */
+function slice(sinceTs: number): boolean {
+  const { first_ts, last_ts } = counts();
+  if (first_ts === null || last_ts === null) return false;
+  return (last_ts - sinceTs) * 2 < Math.max(1, last_ts - first_ts);
+}
+
+export const tapeStats = (sinceTs: number) =>
+  (slice(sinceTs) ? stmt.perWalletSeeked : stmt.perWalletGrouped).all(sinceTs);
 export function counts(): { trades: number; first_ts: number | null; last_ts: number | null } {
   if (held < 0) held = stmt.total.get()!.n;
   return { trades: held, ...stmt.edges.get()! };

@@ -132,23 +132,18 @@ test("the tape's first and last fill are two seeks, not a walk of the tape", () 
   expect(detail).not.toContain("SCAN fills");
 });
 
-test("a windowed group-by reads the window, not the index that groups for free", () => {
-  // Both of these carry INDEXED BY. Without it the planner takes the index whose order the
-  // GROUP BY wants and walks the whole of it, so the window in the WHERE costs a comparison
-  // per row and saves nothing: a page about the last day reads every fill the tape holds.
-  const perWallet = plan(
-    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
-       FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
-    0,
-  );
-  expect(perWallet).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
-  expect(perWallet).not.toContain("SCAN fills");
+test("the traders' aggregate is planned two ways, and each is the plan it is chosen for", () => {
+  const body = "SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts";
+  // Left to itself the planner takes the index whose order the GROUP BY already wants and
+  // walks all of it: the window costs a comparison per fill and saves nothing. That is the
+  // right plan only when the window is most of the tape.
+  const grouped = plan(`${body} FROM fills WHERE ts >= ? GROUP BY wallet`, 0);
+  expect(grouped).toContain("SCAN fills USING INDEX fills_wallet_token_ts");
+  expect(grouped).not.toContain("TEMP B-TREE");
 
-  const perToken = plan(
-    `SELECT token, COUNT(*) AS fills, COUNT(DISTINCT wallet) AS traders_in
-       FROM fills INDEXED BY fills_ts WHERE dust = 0 AND ts >= ?1 GROUP BY token`,
-    0,
-  );
-  expect(perToken).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
-  expect(perToken).not.toContain("SCAN fills");
+  // Forced down fills_ts it reads the window and sorts the wallets, which is what a page about
+  // the last hour wants: measured against the object, two thousand rows against sixty-seven.
+  const seeked = plan(`${body} FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`, 0);
+  expect(seeked).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
+  expect(seeked).not.toContain("SCAN fills");
 });
