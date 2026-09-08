@@ -61,6 +61,14 @@ export class Tape extends DurableObject<Env> {
   /** Rows each route and each step of the pass has walked since the object started, so what
    *  the two do not account for is the chain arriving. See `answer` and `within`. */
   private spent: Record<string, number> = {};
+  /**
+   * Rows walked answering readers, since the object started. A step of the pass is bracketed by
+   * wall clock and the storage counts for the whole isolate, so every request answered while a
+   * step waits on the chain lands in that step's count as well as in its own route's. The
+   * longest waiter collected the most, which made the sweep look like the most expensive job
+   * on the object when it was mostly other people's pages. `within` takes this away again.
+   */
+  private served = 0;
   /** One tick at a time, whoever asked for it — until the one in flight overstays. */
   private running?: { started: number; done: Promise<void> };
 
@@ -92,7 +100,9 @@ export class Tape extends DurableObject<Env> {
     try {
       return await this.serve(request);
     } finally {
-      this.spent["fetch (all of it)"] = (this.spent["fetch (all of it)"] ?? 0) + (rowsRead() - opened);
+      const rows = rowsRead() - opened;
+      this.spent["fetch (all of it)"] = (this.spent["fetch (all of it)"] ?? 0) + rows;
+      this.served += rows;
     }
   }
 
@@ -205,8 +215,12 @@ export class Tape extends DurableObject<Env> {
     // begun before the budget above is looked at, and everything it does before its first
     // await — which for the books walk is the whole of it — happens outside this count.
     const walked = rowsRead();
+    const answered = this.served;
     const count = () => {
-      const rows = rowsRead() - walked;
+      // Less whatever was answered for a reader while this step waited; see `served`. Floored,
+      // because a request that started before the step and finished inside it brings back more
+      // than the step ever saw.
+      const rows = Math.max(0, rowsRead() - walked - (this.served - answered));
       this.beat.rows[step] = (this.beat.rows[step] ?? 0) + rows;
       // And on the running total beside the routes, so what is left over is the chain
       // arriving and nothing else. A pass this one did not run still spent its rows.
@@ -266,10 +280,13 @@ export class Tape extends DurableObject<Env> {
     await this.booted;
     this.bind();
     const opened = rowsRead();
+    const servedAt = this.served;
     try {
       await this.steps(by);
     } finally {
-      this.spent["tick (all of it)"] = (this.spent["tick (all of it)"] ?? 0) + (rowsRead() - opened);
+      const answered = this.served - servedAt;
+      this.spent["tick (all of it)"] =
+        (this.spent["tick (all of it)"] ?? 0) + Math.max(0, rowsRead() - opened - answered);
     }
   }
 
