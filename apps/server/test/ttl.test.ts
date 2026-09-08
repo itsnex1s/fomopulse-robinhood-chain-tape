@@ -65,15 +65,16 @@ test("a window is asked again once its own lifetime is up, and not before", asyn
     fill({ tx: "0xttl-one", block: 9_301, ts: now - 5, wallet: trader.address, token, amount: 1, usd: 10 }),
   ]);
 
-  // Half a minute on: the day is held for fifteen seconds and has noticed, all time is held
-  // for five minutes and has not. Counted as more or the same rather than as an exact
-  // number — the run shares one database, and other files are putting fills on it too.
-  await at(30_000, async () => {
+  // Past the day's own lifetime but well inside all time's: the day has noticed, all time has
+  // not. Both moments are read off the ladder rather than written down, so lengthening a hold
+  // moves the test with it. Counted as more or the same rather than as an exact number — the
+  // run shares one database, and other files are putting fills on it too.
+  await at(limits.cache.counted["24h"] * 2_000, async () => {
     expect(await fillsIn("24h")).toBeGreaterThan(day);
     expect(await fillsIn("all")).toBe(ever);
   });
-  // Ten minutes on, all time has noticed too.
-  await at(600_000, async () => {
+  // And past its own, all time has noticed too.
+  await at(limits.cache.counted.all * 2_000, async () => {
     expect(await fillsIn("all")).toBeGreaterThan(ever);
   });
 });

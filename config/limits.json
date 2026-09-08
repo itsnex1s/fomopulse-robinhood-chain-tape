@@ -47,10 +47,10 @@
     "passRows": 20000
   },
   "cache": {
-    "$comment": "Seconds an answer may be served from memory, by the window it covers. Never longer than the poll behind it: past that the work is already one pass per lifetime and the only thing a longer hold buys is a page slower than it looks. 'counted' is the readout, 'marked' the two pages carrying positions priced at the feed, 'edge' what the colo in front of the object holds.",
-    "counted": { "1h": 5, "24h": 15, "7d": 60, "30d": 120, "all": 300 },
+    "$comment": "Seconds an answer may be served from memory, by the window it covers. A narrow window is held for about as long as the poll behind it. A wide one is held far longer, because the cost of the readout is the fills inside its window: thirty days of tape is a walk of most of the tape, and it shifts by well under a percent in five minutes. 'counted' is the readout, 'marked' the two pages carrying positions priced at the feed, 'edge' what the colo in front of the object holds.",
+    "counted": { "1h": 5, "24h": 15, "7d": 60, "30d": 300, "all": 900 },
     "marked": { "1h": 5, "24h": 15, "7d": 30, "30d": 60, "all": 60 },
-    "$totalsComment": "The tape's own count, which is a walk of every fill it holds and the single most expensive thing the status line asks for. Held far longer than the poll behind it on purpose: a reader looking at a running total of forty-five thousand cannot tell it from the same number five minutes ago, and every window's own figures are counted fresh beside it.",
+    "$totalsComment": "The tape's own count and its first and last fill. No longer a walk of the tape — the count is carried and the two edges are seeks — but still held, because nothing on the readout needs it fresher and every window's own figures are counted beside it.",
     "totalsSeconds": 300,
     "edge": { "tape": 5, "status": 12, "overview": 12, "traders": 90, "bags": 90, "discover": 90, "limits": 300 },
     "$cursorComment": "A page of the tape taken behind a cursor is a page of the past: it cannot change, so it is held for as long as the reader is plausibly still paging through it. Only the first page has to be fresh, and the socket keeps that one fresher than any cache window.",
