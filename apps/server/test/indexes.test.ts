@@ -131,3 +131,24 @@ test("the tape's first and last fill are two seeks, not a walk of the tape", () 
   expect(detail).toContain("fills_ts");
   expect(detail).not.toContain("SCAN fills");
 });
+
+test("a windowed group-by reads the window, not the index that groups for free", () => {
+  // Both of these carry INDEXED BY. Without it the planner takes the index whose order the
+  // GROUP BY wants and walks the whole of it, so the window in the WHERE costs a comparison
+  // per row and saves nothing: a page about the last day reads every fill the tape holds.
+  const perWallet = plan(
+    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
+       FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
+    0,
+  );
+  expect(perWallet).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
+  expect(perWallet).not.toContain("SCAN fills");
+
+  const perToken = plan(
+    `SELECT token, COUNT(*) AS fills, COUNT(DISTINCT wallet) AS traders_in
+       FROM fills INDEXED BY fills_ts WHERE dust = 0 AND ts >= ?1 GROUP BY token`,
+    0,
+  );
+  expect(perToken).toContain("SEARCH fills USING INDEX fills_ts (ts>?)");
+  expect(perToken).not.toContain("SCAN fills");
+});

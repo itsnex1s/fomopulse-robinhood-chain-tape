@@ -77,7 +77,7 @@ const stmt = {
               COALESCE(SUM(CASE WHEN side = 'buy' THEN usd END), 0) AS bought_usd,
               COALESCE(SUM(CASE WHEN side = 'sell' THEN usd END), 0) AS sold_usd,
               COUNT(DISTINCT wallet) AS traders_in
-         FROM fills WHERE dust = 0 AND ts >= ?1 GROUP BY token
+         FROM fills INDEXED BY fills_ts WHERE dust = 0 AND ts >= ?1 GROUP BY token
      ),
      life AS (
        SELECT token, MAX(last_ts) AS last_fill_ts FROM pos GROUP BY token

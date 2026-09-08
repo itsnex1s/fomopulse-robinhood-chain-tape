@@ -35,9 +35,12 @@ const stmt = {
         AND EXISTS (SELECT 1 FROM fills q WHERE q.token = ?1 AND (q.priced = 'cash_leg' OR q.side = 'sell'))`,
   ),
   /** Fills per wallet in a window — the part of a trader's activity we saw ourselves. */
+  // INDEXED BY, because left to itself the planner takes the index that groups for free and
+  // walks the whole of it: the window in the WHERE then costs nothing and saves nothing. Down
+  // fills_ts it reads the window and sorts three hundred wallets, which is the cheap half.
   tapeStats: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
-       FROM fills WHERE ts >= ? GROUP BY wallet`,
+       FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
   ),
   total: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM fills"),
   // Separate from the count on purpose: alone, each of these is one seek down fills_ts, while
