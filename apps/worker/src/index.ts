@@ -6,7 +6,7 @@
 
 import { isViewPath } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
-import { canonical, throttled, tooMany } from "./cache.ts";
+import { canonical, named, nameless, throttled, tooMany } from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -75,6 +75,9 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Everything past this line can reach the object, and the object is what the bill is made
+    // of. The page and its assets are served to anyone at all; see `named`.
+    if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) && !named(request)) return nameless();
     // The socket is an object request like any other, and one nothing caches.
     if (url.pathname === "/ws")
       return (await throttled(env.OBJECT_LIMIT, request)) === "over" ? tooMany() : tape(env).fetch(request);

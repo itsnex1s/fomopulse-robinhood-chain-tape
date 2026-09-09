@@ -63,6 +63,19 @@ export async function throttled(limiter: RateLimiter | undefined, request: Reque
  *  exactly like one nobody has reached, which is the one thing worth telling apart. */
 export type Verdict = "off" | "ok" | "over";
 
+/**
+ * Whether the caller says what it is. A browser always does, and so does every library with a
+ * default; a request that arrives nameless on the way to the object is a scraper that turned
+ * its own name off. The assets are served to anyone — this is only the door to the object.
+ */
+export const named = (request: Request): boolean => (request.headers.get("user-agent") ?? "").trim() !== "";
+
+export const nameless = (): Response =>
+  new Response(JSON.stringify({ error: "send a user-agent" }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
 export const tooMany = (): Response =>
   new Response(JSON.stringify({ error: "too many requests" }), {
     status: 429,

@@ -1,7 +1,7 @@
 /** The canonical query the edge files an answer under. Every value a reader can vary that this
  *  does not fold down is a cache miss they can ask for as often as they like. */
 import { expect, test } from "bun:test";
-import { canonical, throttled, tooMany } from "../../worker/src/cache.ts";
+import { canonical, named, nameless, throttled, tooMany } from "../../worker/src/cache.ts";
 
 const key = (query: string) => canonical(new URL(`https://tape.test/api/tape${query}`)).toString();
 
@@ -63,4 +63,15 @@ test("an address past its minute's worth of the object is refused, and told for 
 test("no limiter and no address are both no ceiling, not a refused reader", async () => {
   expect(await throttled(undefined, from("1.2.3.4"))).toBe("off");
   expect(await throttled(limiter(0), from(null))).toBe("off");
+});
+
+test("a caller that will not say what it is does not reach the object", () => {
+  const ask = (headers?: Record<string, string>) => new Request("https://tape.test/api/tape", { headers });
+  expect(named(ask({ "user-agent": "Mozilla/5.0" }))).toBe(true);
+  expect(named(ask({ "user-agent": "python-requests/2.31.0" }))).toBe(true);
+  // No header at all, and a header that is only spaces, are the same refusal.
+  expect(named(ask())).toBe(false);
+  expect(named(ask({ "user-agent": "" }))).toBe(false);
+  expect(named(ask({ "user-agent": "   " }))).toBe(false);
+  expect(nameless().status).toBe(403);
 });
