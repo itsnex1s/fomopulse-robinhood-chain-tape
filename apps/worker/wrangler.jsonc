@@ -49,7 +49,7 @@
         "name": "OBJECT_LIMIT",
         "type": "ratelimit",
         "namespace_id": "1001",
-        "simple": { "limit": 60, "period": 60 }
+        "simple": { "limit": 20, "period": 60 }
       }
     ]
   },
