@@ -154,17 +154,19 @@ export class Tape extends DurableObject<Env> {
   private reader(): Response {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
-    // The first page a reader draws comes from the colo's cache and is a snapshot of the
-    // past; these are the fills that landed after it was taken. Sent before the response,
-    // which the runtime buffers, so it is waiting the instant the socket opens.
-    const rows = this.app!.catchUpSocket();
-    if (rows.length > 0) pair[1].send(JSON.stringify({ type: "fills", data: rows }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
   /** Only for a socket accepted before the auto-response was set; the runtime answers the rest. */
   override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    if (typeof message === "string" && message === "p") ws.send("p");
+    if (typeof message !== "string") return;
+    if (message === "p") ws.send("p");
+    // The reader asks once, on open. Nothing sent before the upgrade is returned reaches a
+    // socket that has not finished connecting, so the greeting has to be answered, not offered.
+    if (message === "t") {
+      const rows = this.app!.catchUpSocket();
+      if (rows.length > 0) ws.send(JSON.stringify({ type: "fills", data: rows }));
+    }
   }
 
   private broadcast(rows: unknown[]): void {

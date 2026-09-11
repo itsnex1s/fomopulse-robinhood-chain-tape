@@ -38,6 +38,10 @@ export function useFeed(): Feed {
         // query is otherwise fetched once and left alone.
         if (dropped) void client.invalidateQueries({ queryKey: ["tape"] });
         dropped = false;
+        // The page on screen was served from a cache and is a snapshot; this asks for what
+        // landed after it was taken, which is the one thing neither the page nor this socket
+        // would otherwise carry.
+        socket?.send("t");
         heard = Date.now();
         ping = setInterval(() => {
           if (socket?.readyState !== WebSocket.OPEN) return;

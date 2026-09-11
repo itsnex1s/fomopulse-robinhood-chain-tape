@@ -7,13 +7,17 @@ const TOPIC = "fills";
 export const websocket = {
   open(ws: ServerWebSocket<undefined>) {
     ws.subscribe(TOPIC);
-    // The page this reader is about to draw may have come from a cache; these are the fills
-    // that landed after that snapshot was taken, so the gap closes on its own.
-    const rows = tail();
-    if (rows.length > 0) ws.send(JSON.stringify({ type: "fills", data: rows }));
   },
   message(ws: ServerWebSocket<undefined>, message: string | Buffer) {
-    if (message.toString() === "p") ws.send("p");
+    const said = message.toString();
+    if (said === "p") ws.send("p");
+    // The page this reader drew may have come from a cache; these are the fills that landed
+    // after that snapshot was taken. Asked for on open, because a socket cannot be told
+    // anything until it has finished connecting.
+    if (said === "t") {
+      const rows = tail();
+      if (rows.length > 0) ws.send(JSON.stringify({ type: "fills", data: rows }));
+    }
   },
   close(ws: ServerWebSocket<undefined>) {
     ws.unsubscribe(TOPIC);
