@@ -4,7 +4,7 @@
  */
 
 import { measure, meterRows } from "../../server/src/api/budget.ts";
-import { onTape, toFill } from "../../server/src/api/fills.ts";
+import { onTape, tail, toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
 import { cursor } from "../../server/src/ingest/cursor.ts";
@@ -198,6 +198,9 @@ export const repair = (): Promise<unknown> => repairFills();
  * receipt whose transfers have not been carried yet would find nothing under it.
  */
 export const carry = (): Promise<boolean> => Promise.resolve(carryTransfers(limits.migrate.passRows));
+
+/** The fills a socket missed while the page it is about to draw sat in the edge cache. */
+export const catchUpSocket = (): unknown[] => measure("ws:tail", tail);
 
 export const prices = (): Promise<void> => refreshPrices(push);
 /** The books, rewritten from the fills. Off the live path: the ranking reads the table a

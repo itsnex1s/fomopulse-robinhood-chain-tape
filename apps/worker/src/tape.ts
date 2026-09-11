@@ -154,6 +154,11 @@ export class Tape extends DurableObject<Env> {
   private reader(): Response {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    // The first page a reader draws comes from the colo's cache and is a snapshot of the
+    // past; these are the fills that landed after it was taken. Sent before the response,
+    // which the runtime buffers, so it is waiting the instant the socket opens.
+    const rows = this.app!.catchUpSocket();
+    if (rows.length > 0) pair[1].send(JSON.stringify({ type: "fills", data: rows }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 

@@ -1,5 +1,6 @@
 import { chainConfig, wallets } from "../config.ts";
-import type { TapeRow } from "../db.ts";
+import { type TapeRow, tape } from "../db.ts";
+import { limits } from "../limits.ts";
 import { stockOf } from "../stocks.ts";
 import { bookOf, traderOf } from "../traders.ts";
 import type { Fill } from "./types.ts";
@@ -16,6 +17,21 @@ export const STOCK_MIN_USD = 25;
 
 /** Whether a fill is worth a line. Read by the page and by the socket alike, so the two agree. */
 export const onTape = (fill: Fill): boolean => fill.is_stock === 0 || (fill.usd ?? 0) >= STOCK_MIN_USD;
+
+/**
+ * What a socket is given the moment it connects: the fills that landed while the page it is
+ * about to draw was sitting in the edge cache. Four times that cache's lifetime, because a
+ * page can be served at the end of its window and the socket opens after the page arrives.
+ */
+const TAIL_SECONDS = Math.max(60, (limits.cache.edge.tape ?? 15) * 4);
+/** The most it will ever send. A quiet chain sends a handful; a burst must not send a page. */
+const TAIL_ROWS = 200;
+
+/** The tape since `TAIL_SECONDS` ago, in the shape the socket pushes. */
+export const tail = (): Fill[] =>
+  tape(Math.floor(Date.now() / 1000) - TAIL_SECONDS, TAIL_ROWS)
+    .map(toFill)
+    .filter(onTape);
 
 /** The shape robinhoodtrenches.com serves, so a client written against it works here. */
 export function toFill(row: TapeRow): Fill {
