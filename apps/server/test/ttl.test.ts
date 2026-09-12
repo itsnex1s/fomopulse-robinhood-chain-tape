@@ -114,3 +114,18 @@ test("a wider window is held at the edge for as long as the memo behind it, not 
   expect(await ttlOf("/api/status?window=all")).toBe(limits.cache.counted.all);
   expect(await ttlOf("/api/status?window=30d")).toBeGreaterThan(base);
 });
+
+test("a page is not rebuilt faster than the edge in front of it hands it out", () => {
+  // The colo holds these for ninety seconds, so a memo shorter than that builds an answer
+  // nobody is ever served: the next reader gets the cached one either way. Measured against
+  // the object, the three pages here are the most expensive answers it builds.
+  for (const route of ["traders", "bags", "discover"] as const) {
+    const of = ttlBy(MARKED, route);
+    const edge = limits.cache.edge[route]! * 1_000;
+    for (const window of ORDER) expect(of(`${window}|50`)).toBeGreaterThanOrEqual(edge);
+    // A window the ladder holds longer than the edge still gets its own, longer lifetime.
+    expect(of("all|50")).toBe(Math.max(ttl(MARKED, "all"), edge));
+  }
+  // Named nothing, it is the ladder alone — which is what the readout's own routes use.
+  expect(ttlBy(MARKED)("all|50")).toBe(ttl(MARKED, "all"));
+});

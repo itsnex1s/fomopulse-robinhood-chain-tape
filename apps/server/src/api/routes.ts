@@ -45,11 +45,15 @@ const asMs = (ladder: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(ladder).map(([window, seconds]) => [window, ms(seconds)]));
 export const COUNTED = asMs(limits.cache.counted);
 export const MARKED = asMs(limits.cache.marked);
-/** Every key here opens with the window, whatever else it carries. */
+/**
+ * Every key here opens with the window, whatever else it carries. A route names itself as well,
+ * and then its answer is never held for less than the edge in front of it: a shorter memo
+ * rebuilds what no reader can see, because the colo would have served the answer before it.
+ */
 export const ttlBy =
-  (ladder: Record<string, number>) =>
+  (ladder: Record<string, number>, route?: string) =>
   (key: string): number =>
-    (ladder[key.split("|")[0] ?? ""] ?? 15_000) * pressure();
+    Math.max(ladder[key.split("|")[0] ?? ""] ?? 15_000, ms(limits.cache.edge[route ?? ""] ?? 0)) * pressure();
 
 /** The tape's own totals: a running count over every fill, and the first one on it. Neither
  *  is read closely enough to be worth a scan of the table twelve times a minute. */
@@ -161,7 +165,7 @@ const tapeFor = memo(1_000, (key) => {
  * The two heaviest reads: the ranking walks every wallet, the bags group the tape by token
  * and join it, plus one holders query each. Both are polled by every open tab.
  */
-const tradersFor = memo(ttlBy(MARKED), (key) => {
+const tradersFor = memo(ttlBy(MARKED, "traders"), (key) => {
   const [window, limitText] = key.split("|");
   const resolved = window ?? "24h";
   // A grouped pass over the window's fills, plus one row per wallet from the books.
@@ -169,7 +173,7 @@ const tradersFor = memo(ttlBy(MARKED), (key) => {
   return ranking(since(resolved), resolved, Math.min(Number(limitText) || 50, 300));
 });
 
-const bagsFor = memo(ttlBy(MARKED), (key) => {
+const bagsFor = memo(ttlBy(MARKED, "bags"), (key) => {
   const [window, limitText] = key.split("|");
   // The positions, grouped by token four ways over — the bag, its largest holder, the
   // token's last fill and its first buy — and the window's own fills for the flow columns.
@@ -182,7 +186,7 @@ const bagsFor = memo(ttlBy(MARKED), (key) => {
  * the storage layer cuts at rather than by the window, which here only says what "just now"
  * means — a token three days old belongs on the page whichever window the reader is in.
  */
-const discoverFor = memo(ttlBy(MARKED), (key) => {
+const discoverFor = memo(ttlBy(MARKED, "discover"), (key) => {
   const [window, limitText] = key.split("|");
   const limit = Math.min(Number(limitText) || 60, 200);
   // Only the pools younger than the cut are read, plus their own fills and one buyers query.
