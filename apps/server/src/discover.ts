@@ -1,6 +1,6 @@
 import type { Discover } from "./api/types.ts";
 import { wallets } from "./config.ts";
-import { buyersOf, discoverTokens } from "./db.ts";
+import { discoverBuyers, discoverTokens } from "./db.ts";
 import { isStock } from "./stocks.ts";
 import { bookOf, traderOf } from "./traders.ts";
 
@@ -19,14 +19,14 @@ export function discoverList(recentTs: number, limit: number): Discover[] {
   const now = Math.floor(Date.now() / 1000);
   // A tokenised stock has a pool like anything else and is never a discovery.
   const rows = discoverTokens(now, recentTs, limit).filter((row) => !isStock(row.token));
+  const bought = discoverBuyers(rows.map((row) => row.token));
 
   return rows.map((row): Discover => {
-    const { buyers_json, ...card } = row;
-    const buyers = buyersOf(row);
+    const buyers = bought.get(row.token) ?? [];
     const ranks = buyers.map((buyer) => bookOf(buyer.wallet).rank).filter((rank): rank is number => rank !== null);
     const firstBuyer = row.first_buyer ? walletOf.get(row.first_buyer as `0x${string}`) : undefined;
     return {
-      ...card,
+      ...row,
       is_stock: 0,
       first_buyer: firstBuyer?.handle ?? row.first_buyer,
       // How long the pool ran before the first tracked wallet found it.

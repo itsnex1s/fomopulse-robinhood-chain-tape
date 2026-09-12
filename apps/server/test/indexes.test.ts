@@ -12,13 +12,9 @@ import { db } from "../src/db.ts";
 const discoverPlan = `WITH young AS MATERIALIZED (
     SELECT p.token AS token FROM prices p WHERE p.pair_created_at >= 1 AND p.liquidity_usd >= 2
   ),
-  per_wallet AS (
-    SELECT f.token AS token, f.wallet AS wallet, f.side AS side, f.dust AS dust,
-           COUNT(*) AS fills, SUM(f.usd) AS usd, MIN(f.ts) AS first_ts, MAX(f.ts) AS last_ts
-      FROM young y CROSS JOIN fills f ON f.token = y.token
-     GROUP BY f.token, f.wallet, f.side, f.dust
+  flow AS (
+    SELECT f.token AS token, COUNT(*) AS fills FROM young y CROSS JOIN fills f ON f.token = y.token GROUP BY f.token
   ),
-  flow AS (SELECT token, SUM(fills) AS fills FROM per_wallet GROUP BY token),
   washed AS (
     SELECT a.token AS token, COUNT(*) AS flips
       FROM young y
@@ -102,9 +98,7 @@ test("the discover page walks the young pools, not the whole tape twice over", (
   const detail = plan(discoverPlan);
   expect(detail).not.toContain("SCAN f USING");
   expect(detail).not.toContain("SCAN a USING");
-  // Not covering any more: the one grouping that serves both the flow columns and the
-  // buyer strip reads the wallet and the side off the row, which is what saved a second walk.
-  expect(detail).toContain("SEARCH f USING INDEX fills_token_ts (token=?)");
+  expect(detail).toContain("SEARCH f USING COVERING INDEX fills_token_ts (token=?)");
   expect(detail).toContain("SEARCH a USING INDEX fills_token_ts (token=?)");
 });
 
