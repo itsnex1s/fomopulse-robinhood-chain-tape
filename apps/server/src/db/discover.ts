@@ -19,6 +19,14 @@ export const MIN_POOL_USD = 10_000;
 /** Day's volume over pool depth, past which the volume is not the market's: a pool turning
  *  over twenty times its own depth in a day is the shape wash trading leaves behind. */
 export const MAX_CHURN = 20;
+/**
+ * How old the feed's card may be and still describe the pool. A pool that rugs stops being
+ * answered for rather than answered badly: the card keeps the depth, the day's volume and the
+ * change the pool had the hour it emptied, and every one of those reads as a discovery. The
+ * quote pass asks about a young pool every few minutes, so an hour of silence is the feed's
+ * answer, not its queue.
+ */
+export const MAX_QUOTE_AGE = 3_600;
 /** A buy and a sell by one wallet this close together and this near the same size cancel:
  *  nothing moved and the tape carries the volume anyway. Counted, never hidden here. */
 const WASH_SECONDS = 300;
@@ -63,10 +71,13 @@ const stmt = {
    * fills of every young pool are read here and nowhere else — everything a row carries beyond
    * that is asked of the page's own tokens below.
    *
-   * Parameters: the oldest pool birth in milliseconds, the window start in seconds, the pool
-   * floor, the churn ceiling and the row limit.
+   * Parameters: the oldest pool birth in milliseconds, the window start in seconds, the oldest
+   * quote that still counts, the pool floor, the churn ceiling and the row limit.
    */
-  page: db.query<PageRow, { $born: number; $recent: number; $pool: number; $churn: number; $limit: number }>(
+  page: db.query<
+    PageRow,
+    { $born: number; $recent: number; $fresh: number; $pool: number; $churn: number; $limit: number }
+  >(
     /* The pools are the small side of the join — a few hundred against the whole tape — and left
        to itself the planner walks the fills instead, which is every fill this tape holds read for
        a page about three days. MATERIALIZED and CROSS JOIN say so. */
@@ -78,6 +89,7 @@ const stmt = {
               p.pair_created_at AS pair_created_at, p.pair_address AS pair_address
          FROM prices p
         WHERE p.pair_created_at IS NOT NULL AND p.pair_created_at >= $born
+          AND p.updated_at >= $fresh
           AND p.liquidity_usd >= $pool
           AND (p.volume24 IS NULL OR p.volume24 <= p.liquidity_usd * $churn)
      ),
@@ -167,6 +179,7 @@ export function discoverTokens(now: number, recentTs: number, limit: number, net
   const page = stmt.page.all({
     $born: (now - MAX_POOL_AGE) * 1_000,
     $recent: recentTs,
+    $fresh: now - MAX_QUOTE_AGE,
     $pool: MIN_POOL_USD,
     $churn: MAX_CHURN,
     $limit: limit,

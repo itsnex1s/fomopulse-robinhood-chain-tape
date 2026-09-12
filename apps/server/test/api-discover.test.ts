@@ -1,5 +1,6 @@
 /** Discover: the young pools a tracked wallet bought into, and everything the page cuts before it. */
 import { expect, test } from "bun:test";
+import { MAX_QUOTE_AGE } from "../src/db.ts";
 import { api, fill, insertFills, now, savePrice, saveToken, wallets } from "./support/api.ts";
 
 const HOUR = 3_600;
@@ -10,7 +11,10 @@ const page = async (limit: number) => {
   return (await res.json()) as Record<string, unknown>[];
 };
 
-const pool = (token: string, over: Partial<{ liquidity: number; volume24: number; born: number; mcap: number }> = {}) =>
+const pool = (
+  token: string,
+  over: Partial<{ liquidity: number; volume24: number; born: number; mcap: number; quoted: number }> = {},
+) =>
   savePrice(
     token,
     {
@@ -22,7 +26,7 @@ const pool = (token: string, over: Partial<{ liquidity: number; volume24: number
       volume24: over.volume24 ?? 30_000,
       marketCap: over.mcap ?? 200_000,
     },
-    now,
+    over.quoted ?? now,
   );
 
 test("a young pool carries this tape's own count of who is in it, and the feed's card for the pool", async () => {
@@ -222,4 +226,25 @@ test("a first buy that took its price from the quote still standing measures not
   const row = (await page(65)).find((r) => r.token === token)!;
   expect(row.mcap_at).toBeNull();
   expect(row.buyers).toBe(2);
+});
+
+test("a pool the feed has stopped answering for keeps the card it had and not the page", async () => {
+  const token = "0xd15c000000000000000000000000000000000008";
+  saveToken(token, 18, "GONE", "Gone");
+  // Deep, young and busy the last time anyone heard: a card a rug leaves behind looks exactly
+  // like the pool it drained, because it is that pool, an hour or a day ago.
+  pool(token, { quoted: now - MAX_QUOTE_AGE - 1 });
+  insertFills([
+    fill({
+      tx: "0xdisc-gone",
+      block: 50,
+      ts: now - 2 * HOUR,
+      wallet: wallets[31]!.address,
+      token,
+      amount: 10,
+      usd: 100,
+    }),
+  ]);
+
+  expect((await page(66)).map((r) => r.token)).not.toContain(token);
 });
