@@ -31,6 +31,19 @@ const ESTIMATE_MAX_AGE = 3_600;
 
 /** When the marks were last swept, so the pass in between only asks about what is owed a price. */
 let sweptAt = 0;
+/**
+ * Marks one sweep chooses between, wider than one call on purpose. The stalest quotes belong
+ * to the pools the feed has stopped answering for, and asking about one of those changes
+ * nothing on its row — so a call filled by staleness alone is the same call every minute and
+ * everything behind it is never quoted again.
+ */
+const CANDIDATES = 1_000;
+/**
+ * When each token was last asked about, in this object's memory rather than on its row: an
+ * unanswered ask leaves no trace on the row, and a row written costs a thousand rows read.
+ * Whose turn it is survives a restart no better than the quotes do, which is one wasted sweep.
+ */
+const askedAt = new Map<string, number>();
 
 /** One pass: quote what is owed a price, sweep the stale marks on their own slower clock. */
 export async function refreshPrices(onRepriced: (txs: string[]) => void): Promise<void> {
@@ -46,8 +59,18 @@ export async function refreshPrices(onRepriced: (txs: string[]) => void): Promis
   // between sweeps and saves the writes of every pass in between; see feed.staleSweepSeconds.
   const sweeping = now - sweptAt >= limits.feed.staleSweepSeconds;
   if (sweeping) sweptAt = now;
-  const stale = sweeping ? tokensToPrice(now - MARK_MAX_AGE, now - limits.feed.staleSweepSeconds, room) : [];
-  const wanted = [...owed, ...stale.filter((token) => !waiting.has(token))].slice(0, room) as Address[];
+  const stale = sweeping ? tokensToPrice(now - MARK_MAX_AGE, now - limits.feed.staleSweepSeconds, CANDIDATES) : [];
+  // Longest unasked first, so a pool the feed has dropped takes its turn and no more.
+  const queue = stale.filter((token) => !waiting.has(token));
+  queue.sort((a, b) => (askedAt.get(a) ?? 0) - (askedAt.get(b) ?? 0));
+  const wanted = [...owed, ...queue].slice(0, room) as Address[];
+  for (const token of wanted) askedAt.set(token, now);
+  // The candidates are everything a sweep may ask about, so anything else has stopped trading.
+  // Not while they were cut short, when the ones left out are candidates the query never reached.
+  if (sweeping && stale.length < CANDIDATES) {
+    const live = new Set(stale);
+    for (const token of askedAt.keys()) if (!live.has(token)) askedAt.delete(token);
+  }
   // The floating quote token rides along whenever a call goes out anyway: the receipt
   // path prices WETH cash legs from it, and a quote it already has is a request it does
   // not make. An idle tape still makes no call at all.

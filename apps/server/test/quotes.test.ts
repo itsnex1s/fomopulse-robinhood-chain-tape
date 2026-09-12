@@ -6,6 +6,7 @@ import type { Hex } from "viem";
 import "./support/memory.ts";
 import { MAX_POOL_AGE, tokensToPrice } from "../src/db.ts";
 import { limits } from "../src/limits.ts";
+import { BATCH } from "../src/prices/dexscreener.ts";
 import { refreshPrices } from "../src/prices/feed.ts";
 import { fill, insertFills, now, savePrice } from "./support/api.ts";
 
@@ -93,4 +94,33 @@ test("more marks than the call has room for and the stalest of them go first", (
   const places = tokens.map((token) => wanted.indexOf(token));
   expect(places).not.toContain(-1);
   expect(places).toEqual([...places].sort((a, b) => b - a));
+});
+
+test("one sweep and the next ask about different marks", async () => {
+  // More marks owed a sweep than one call holds, all equally stale. Two days back, so a
+  // couple of hundred of them are not the top of the tape every other test reads.
+  const many = Array.from(
+    { length: BATCH + 40 },
+    (_, n): Hex => `0x${"e".repeat(2)}${n.toString(16).padStart(38, "0")}`,
+  );
+  many.forEach((token, n) => {
+    insertFills([
+      fill({ tx: `0xswept-${n}`, wallet: `0x${"a6".repeat(20)}`, token, ts: now - 2 * DAY, usd: 1, price: 1 }),
+    ]);
+    savePrice(token, quote, now - 3_600);
+  });
+
+  const real = Date.now;
+  try {
+    // Each sweep is a minute after the last, which is what puts the marks past their age again.
+    Date.now = () => real() + 60_000;
+    const first = await asked(() => refreshPrices(() => {}));
+    Date.now = () => real() + 120_000;
+    const second = await asked(() => refreshPrices(() => {}));
+    const missed = many.filter((token) => !first.includes(token));
+    expect(missed).not.toBeEmpty();
+    expect(missed.filter((token) => second.includes(token))).not.toBeEmpty();
+  } finally {
+    Date.now = real;
+  }
 });
