@@ -54,3 +54,26 @@ test("the halves of the two heaviest pages each keep what they walked", async ()
   for (const part of Object.values(measured())) expect(part.runs).toBeGreaterThan(0);
   resetBudget();
 });
+
+test("where the platform counts, nothing is spent working out what a page might have cost", () => {
+  resetBudget(0);
+  let walked = 0;
+  meterRows(() => walked);
+  let asked = 0;
+  // The bags page priced its own read by counting every position it holds. On the object that
+  // figure is never looked at, so reading the database for it is the whole cost and none of
+  // the answer.
+  spend(() => {
+    asked++;
+    return 1_000;
+  });
+  expect(asked).toBe(0);
+  resetBudget();
+  // Without a meter it is the only figure there is, so it is worked out and counted.
+  spend(() => {
+    asked++;
+    return 1_000;
+  });
+  expect(asked).toBe(1);
+  resetBudget();
+});

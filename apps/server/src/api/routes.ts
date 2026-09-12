@@ -169,7 +169,7 @@ const tradersFor = memo(ttlBy(MARKED, "traders"), (key) => {
   const [window, limitText] = key.split("|");
   const resolved = window ?? "24h";
   // A grouped pass over the window's fills, plus one row per wallet from the books.
-  spend(fillsIn(resolved) + wallets.length);
+  spend(() => fillsIn(resolved) + wallets.length);
   return ranking(since(resolved), resolved, Math.min(Number(limitText) || 50, 300));
 });
 
@@ -177,7 +177,7 @@ const bagsFor = memo(ttlBy(MARKED, "bags"), (key) => {
   const [window, limitText] = key.split("|");
   // The positions, grouped by token four ways over — the bag, its largest holder, the
   // token's last fill and its first buy — and the window's own fills for the flow columns.
-  spend(positionsCount() * 4 + fillsIn(window ?? "all"));
+  spend(() => positionsCount() * 4 + fillsIn(window ?? "all"));
   return bagList(since(window), Math.min(Number(limitText) || 60, 200));
 });
 
@@ -190,7 +190,7 @@ const discoverFor = memo(ttlBy(MARKED, "discover"), (key) => {
   const [window, limitText] = key.split("|");
   const limit = Math.min(Number(limitText) || 60, 200);
   // Only the pools younger than the cut are read, plus their own fills and one buyers query.
-  spend(limit * 4 + fillsIn(window ?? "24h"));
+  spend(() => limit * 4 + fillsIn(window ?? "24h"));
   return discoverList(Math.max(since(window ?? "24h"), Math.floor(Date.now() / 1000) - MAX_POOL_AGE), limit);
 });
 

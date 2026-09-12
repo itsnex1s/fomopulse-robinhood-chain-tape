@@ -46,11 +46,18 @@ export const meterRows = (count: () => number): void => {
   since = Date.now();
 };
 
-/** Rows an answer walked. Called by whatever worked it out, not guessed at from outside; only
- *  counted where the platform keeps no count of its own. */
-export const spend = (walked: number): void => {
+/**
+ * Rows an answer walked. Called by whatever worked it out, not guessed at from outside; only
+ * counted where the platform keeps no count of its own.
+ *
+ * A figure the caller has to read the database for is passed as the reading rather than the
+ * number, because where the platform counts, nothing here is ever used — and the bags page was
+ * walking every position it holds, twice a minute, to price a read that was then thrown away.
+ */
+export const spend = (walked: number | (() => number)): void => {
+  if (meter !== undefined) return;
   if (since === 0) since = Date.now();
-  rows += walked;
+  rows += typeof walked === "function" ? walked() : walked;
 };
 
 /** Rows walked since the counting began, the platform's number where there is one. */
