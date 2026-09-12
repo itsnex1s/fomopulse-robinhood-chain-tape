@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import type { Hex } from "viem";
 import "./support/memory.ts";
-import { tokensToPrice } from "../src/db.ts";
+import { MAX_POOL_AGE, tokensToPrice } from "../src/db.ts";
 import { limits } from "../src/limits.ts";
 import { refreshPrices } from "../src/prices/feed.ts";
 import { fill, insertFills, now, savePrice } from "./support/api.ts";
@@ -65,4 +65,32 @@ test("a pass inside the sweep asks about the fill owed a price and about no mark
   const inside = await asked(() => refreshPrices(() => {}));
   expect(inside).toContain(owed);
   expect(inside).not.toContain(cold);
+});
+
+test("a pool that stopped trading a day ago is still marked, for as long as it can be a discovery", () => {
+  const quiet: Hex = `0x${"c7".repeat(20)}`;
+  insertFills([fill({ tx: `0x${"c8".repeat(32)}`, wallet: `0x${"a4".repeat(20)}`, token: quiet, ts: now - 2 * DAY })]);
+  savePrice(quiet, quote, now - limits.feed.staleSweepSeconds - 1);
+
+  // A day's reach and this token is never asked about again: its card keeps the numbers the
+  // pool had the day it went quiet, and the discover page shows them for two days more.
+  expect(tokensToPrice(now - DAY, now - limits.feed.staleSweepSeconds, 100)).not.toContain(quiet);
+  expect(tokensToPrice(now - MAX_POOL_AGE, now - limits.feed.staleSweepSeconds, 100)).toContain(quiet);
+});
+
+test("more marks than the call has room for and the stalest of them go first", () => {
+  const sweep = limits.feed.staleSweepSeconds;
+  // Written youngest first, so table order and staleness disagree and only the ordering can
+  // tell them apart. An unordered limit stops at the same prefix every pass and the rest of
+  // the table is never quoted again.
+  const tokens = [0, 1, 2, 3].map((n): Hex => `0x${"dd"}${n}${"0".repeat(37)}`);
+  tokens.forEach((token, n) => {
+    insertFills([fill({ tx: `0x${"d9".repeat(31)}0${n}`, wallet: `0x${"a5".repeat(20)}`, token })]);
+    savePrice(token, quote, now - sweep - 1 - n * 60);
+  });
+
+  const wanted = tokensToPrice(now - MAX_POOL_AGE, now - sweep, 10_000);
+  const places = tokens.map((token) => wanted.indexOf(token));
+  expect(places).not.toContain(-1);
+  expect(places).toEqual([...places].sort((a, b) => b - a));
 });

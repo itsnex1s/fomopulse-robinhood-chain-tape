@@ -30,14 +30,16 @@ const stmt = {
    * A token with no quote yet is not here and does not need to be: its own fills are unpriced,
    * and `unpricedByToken` puts those at the front of the same queue.
    *
-   * Nor is the answer sorted. The cut is an age, so a token quoted in this round is out of the
-   * next one until it goes stale again — the rotation is the column itself, and the scan stops
-   * at the first call's worth rather than ordering every quote there is to find the oldest.
+   * The stalest go first. More tokens are eligible than one call can hold, and an unordered
+   * limit stops at the same prefix of them every pass: the tail is then never quoted again and
+   * its card freezes at whatever the pool looked like the day it stopped trading. Ordering a
+   * few hundred rows once a sweep is the cheap half of that trade.
    */
   toPrice: db.query<{ token: string }, [number, number, number]>(
     `SELECT p.token AS token FROM prices p
       WHERE p.updated_at < ?1
         AND EXISTS (SELECT 1 FROM fills f WHERE f.token = p.token AND f.ts >= ?2)
+      ORDER BY p.updated_at
       LIMIT ?3`,
   ),
   /** Every fill still owed a price, across the whole window at once: the quote pass has a

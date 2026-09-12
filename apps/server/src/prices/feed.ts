@@ -1,6 +1,7 @@
 import type { Address } from "viem";
 import {
   loadPrices,
+  MAX_POOL_AGE,
   refreshPositions,
   savePrice,
   setEstimate,
@@ -16,7 +17,12 @@ import { FLOATING, noteEthUsd } from "./eth.ts";
 /** Last known USD price per token; `reconstruct` reads it to estimate legs no cash leg pays for. */
 export const prices = loadPrices();
 
-const DAY = 86_400;
+/**
+ * How long after its last fill a token is still worth re-marking. The discover page shows a
+ * pool for MAX_POOL_AGE, and a card nothing refreshes freezes at the day the pool stopped
+ * trading — which for a rug is the day it was still full.
+ */
+const MARK_MAX_AGE = MAX_POOL_AGE;
 /**
  * An estimate uses the price right now, so only recent fills qualify.
  * note: older unpriced fills stay unpriced until there is a historical price source.
@@ -40,7 +46,7 @@ export async function refreshPrices(onRepriced: (txs: string[]) => void): Promis
   // between sweeps and saves the writes of every pass in between; see feed.staleSweepSeconds.
   const sweeping = now - sweptAt >= limits.feed.staleSweepSeconds;
   if (sweeping) sweptAt = now;
-  const stale = sweeping ? tokensToPrice(now - DAY, now - limits.feed.staleSweepSeconds, room) : [];
+  const stale = sweeping ? tokensToPrice(now - MARK_MAX_AGE, now - limits.feed.staleSweepSeconds, room) : [];
   const wanted = [...owed, ...stale.filter((token) => !waiting.has(token))].slice(0, room) as Address[];
   // The floating quote token rides along whenever a call goes out anyway: the receipt
   // path prices WETH cash legs from it, and a quote it already has is a request it does

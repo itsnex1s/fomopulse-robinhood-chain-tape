@@ -57,7 +57,7 @@ test("the halves of the two heaviest pages each keep what they walked", async ()
 
 test("where the platform counts, nothing is spent working out what a page might have cost", () => {
   resetBudget(0);
-  let walked = 0;
+  const walked = 0;
   meterRows(() => walked);
   let asked = 0;
   // The bags page priced its own read by counting every position it holds. On the object that
