@@ -100,9 +100,9 @@ const stmt = {
         as one — so the tie is broken on the address rather than left to the query plan. */
      opened AS (
        SELECT token, first_buy_ts, wallet AS first_buyer FROM (
-         SELECT p.token AS token, p.first_buy_ts AS first_buy_ts, p.wallet AS wallet,
-                ROW_NUMBER() OVER (PARTITION BY p.token ORDER BY p.first_buy_ts, p.wallet) AS place
-           FROM positions p JOIN young y ON y.token = p.token
+         SELECT y.token AS token, p.first_buy_ts AS first_buy_ts, p.wallet AS wallet,
+                ROW_NUMBER() OVER (PARTITION BY y.token ORDER BY p.first_buy_ts, p.wallet) AS place
+           FROM young y CROSS JOIN positions p ON p.token = y.token
           WHERE p.first_buy_ts IS NOT NULL
        ) WHERE place = 1
      ),

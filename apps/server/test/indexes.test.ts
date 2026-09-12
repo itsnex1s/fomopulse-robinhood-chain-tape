@@ -163,3 +163,20 @@ test("the crowd behind a page is one seek per token, not a walk of the tape", ()
   expect(detail).toContain("SEARCH q USING INDEX fills_token_ts (token=? AND ts>? AND ts<?)");
   expect(detail).not.toContain("SCAN q");
 });
+
+test("the page's first buyer is a seek per pool, not a walk of every position", () => {
+  // Written the other way round — positions joined to the pools — the planner takes the
+  // positions as the outer table and walks all of them to name the first buyer of a couple
+  // of hundred tokens, which was three quarters of what the page read.
+  const detail = plan(`WITH young AS MATERIALIZED (
+      SELECT q.token AS token FROM prices q WHERE q.pair_created_at >= 1 AND q.liquidity_usd >= 2
+    )
+    SELECT token, first_buy_ts, wallet AS first_buyer FROM (
+      SELECT y.token AS token, p.first_buy_ts AS first_buy_ts, p.wallet AS wallet,
+             ROW_NUMBER() OVER (PARTITION BY y.token ORDER BY p.first_buy_ts, p.wallet) AS place
+        FROM young y CROSS JOIN positions p ON p.token = y.token
+       WHERE p.first_buy_ts IS NOT NULL
+    ) WHERE place = 1`);
+  expect(detail).toContain("SEARCH p USING PRIMARY KEY (token=?)");
+  expect(detail).not.toContain("SCAN p");
+});
