@@ -125,6 +125,9 @@ export const SCHEMA = `
     wins_24h INTEGER NOT NULL, wins_7d INTEGER NOT NULL, wins_30d INTEGER NOT NULL, wins_all INTEGER NOT NULL,
     unrealized REAL NOT NULL, open_value REAL NOT NULL, open_tokens INTEGER NOT NULL, free REAL NOT NULL,
     buys INTEGER NOT NULL, sells INTEGER NOT NULL, volume REAL NOT NULL, tokens INTEGER NOT NULL,
+    /** What the tape's own aggregate would report for this wallet over the whole tape: every
+     *  fill with a price, the dusted ones included, which the volume above leaves out. */
+    tape_volume REAL NOT NULL DEFAULT 0,
     first_ts INTEGER, last_ts INTEGER, computed_at INTEGER NOT NULL
   );
   /** Small named values that survive a restart: the resume cursor, the feed's source. */

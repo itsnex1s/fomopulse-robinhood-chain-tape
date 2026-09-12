@@ -28,6 +28,14 @@ try {
   // already there, which is the ordinary case
 }
 
+/** The books of a database that predates the tape's own volume have no column to put it in;
+ *  they are rewritten whole by the next walk, so the column only has to exist. */
+try {
+  db.exec("ALTER TABLE trader_stats ADD COLUMN tape_volume REAL NOT NULL DEFAULT 0");
+} catch {
+  // already there, which is the ordinary case
+}
+
 /** A slice of the one-off carry, small enough that opening the database stays an open rather
  *  than a migration; the pass finishes the rest. See db/logs.ts. */
 carryTransfersOntoReceipts(db, limits.migrate.bootRows);

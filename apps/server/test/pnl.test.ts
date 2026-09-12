@@ -1,8 +1,9 @@
 /** The books: what a wallet made, walked from its own fills and nobody else's numbers. */
 import { expect, test } from "bun:test";
-import { allStats } from "../src/db.ts";
+import { allStats, tapeStats } from "../src/db.ts";
 import { HANDOUT } from "../src/ingest/reconstruct.ts";
 import { rebuildStats } from "../src/pnl.ts";
+import { ranking } from "../src/traders.ts";
 import { fill, insertFills, now, wallets } from "./support/api.ts";
 
 const token = "0xb00c111111111111111111111111111111111111";
@@ -168,4 +169,35 @@ test("a sale nothing could price still closes the position", () => {
   // Nothing priced the sale, so there is no trip to score either way — not a win, not a loss.
   expect(book.trips_all).toBe(0);
   expect(book.realized_all).toBe(0);
+});
+
+test("a window covering the whole tape is answered off the books and comes to the same numbers", () => {
+  // The costly half of the traders page is a pass over every fill in the window, grouped by
+  // wallet. A window that starts before the tape does asks for the whole tape, and the walk
+  // behind the books already read all of it — so the two have to agree exactly, including the
+  // fills that landed after the walk and the wallets whose first trade was one of them.
+  const trader = wallets[13]!.address;
+  const coin = "0xb00c000000000000000000000000000000000001";
+  insertFills([
+    fill({ tx: "0xbooks-1", ts: now - 600, wallet: trader, token: coin, amount: 10, usd: 40 }),
+    // A handout with a price: the tape counts it as volume, the books' own `volume` does not.
+    fill({ tx: "0xbooks-2", ts: now - 500, wallet: trader, token: coin, amount: 5, usd: 7, dust: 2 }),
+  ]);
+  rebuildStats(now);
+  // Landed after the walk, so it can only come from the seek the books are topped up with.
+  insertFills([
+    fill({ tx: "0xbooks-3", ts: now - 100, wallet: trader, token: coin, side: "sell", amount: 4, usd: 20 }),
+  ]);
+
+  const live = new Map(tapeStats(0).map((row) => [row.wallet, row]));
+  const off = new Map(ranking(0, "all", 1_000).map((row) => [row.address, row]));
+  for (const [address, row] of live) {
+    const shown = off.get(address)!;
+    expect([address, shown.fills, shown.tape_volume, shown.last_ts]).toEqual([
+      address,
+      row.fills,
+      row.volume,
+      row.last_ts,
+    ]);
+  }
 });

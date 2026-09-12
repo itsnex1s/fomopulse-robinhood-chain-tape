@@ -7,7 +7,7 @@ import {
   type StatWindow,
   saveStats,
 } from "./db/stats.ts";
-import { getMeta, loadPrices, RESIDUE, setMeta } from "./db.ts";
+import { getMeta, loadPrices, RESIDUE, setMeta, WALK_THROUGH } from "./db.ts";
 import { limits, ms } from "./limits.ts";
 import { log } from "./log.ts";
 import { WINDOW_SECONDS } from "./window.ts";
@@ -37,6 +37,7 @@ interface Stat {
   buys: number;
   sells: number;
   volume: number;
+  tapeVolume: number;
   first: number;
   last: number;
 }
@@ -49,6 +50,7 @@ const blank = (): Stat => ({
   buys: 0,
   sells: 0,
   volume: 0,
+  tapeVolume: 0,
   first: 0,
   last: 0,
 });
@@ -61,6 +63,9 @@ const cutoffs = (now: number): [StatWindow, number][] =>
 function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, number][]): void {
   if (stat.first === 0) stat.first = fill.ts;
   stat.last = fill.ts;
+  // The tape counts a priced handout as volume and the books do not; both numbers are shown,
+  // so both are kept. See `volume` below for the one the p/l is built on.
+  if (fill.usd !== null) stat.tapeVolume += fill.usd;
 
   if (fill.side === "buy") {
     stat.buys++;
@@ -128,11 +133,13 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
   let ts = -1;
   let id = 0;
   let fills = 0;
+  let through = 0;
 
   for (;;) {
     const page = fillsAfter(ts, id, PAGE);
     if (page.length === 0) break;
     for (const fill of page) {
+      if (fill.id > through) through = fill.id;
       let stat = stats.get(fill.wallet);
       if (stat === undefined) {
         stat = blank();
@@ -197,6 +204,7 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
       buys: s.buys,
       sells: s.sells,
       volume: s.volume,
+      tape_volume: s.tapeVolume,
       tokens: tokens.get(wallet) ?? 0,
       first_ts: s.first || null,
       last_ts: s.last || null,
@@ -208,6 +216,10 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
   // What the next interval is worked out from, kept in the database rather than in the
   // process: on the object a walk and the scheduling of the next one are different isolates.
   setMeta(WALK_MS, ms);
+  // The last row this walk read, so a reader can add on what has landed since without
+  // walking the tape again. By row rather than by time: a sweep can store a fill older than
+  // the newest one, and by time that fill would fall between the two and be counted by neither.
+  setMeta(WALK_THROUGH, through);
   log.info(`books: ${rows.length} wallets over ${fills.toLocaleString()} fills in ${ms}ms`);
   return { wallets: rows.length, fills, ms };
 }

@@ -1,5 +1,9 @@
 import { db } from "./connection.ts";
 
+/** Where the books record the last fill their walk read, so a reader can add on what has
+ *  landed since. In `meta` rather than on the rows: it is one number for the whole table. */
+export const WALK_THROUGH = "books:through";
+
 /** The windows the books are kept per, exactly the ones the pages offer. */
 export const STAT_WINDOWS = ["24h", "7d", "30d", "all"] as const;
 export type StatWindow = (typeof STAT_WINDOWS)[number];
@@ -14,6 +18,7 @@ const COLUMNS = [
   "buys",
   "sells",
   "volume",
+  "tape_volume",
   "tokens",
   "first_ts",
   "last_ts",
@@ -75,6 +80,8 @@ export interface StatRow {
   buys: number;
   sells: number;
   volume: number;
+  /** Every priced fill, dust included: what the tape's own aggregate reports. */
+  tape_volume: number;
   tokens: number;
   first_ts: number | null;
   last_ts: number | null;

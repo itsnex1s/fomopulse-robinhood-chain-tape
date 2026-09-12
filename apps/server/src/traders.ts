@@ -4,6 +4,7 @@ import { chainConfig, wallets } from "./config.ts";
 import {
   allStats,
   allTraders,
+  coversTape,
   getMeta,
   STAT_WINDOWS,
   type StatRow,
@@ -15,6 +16,8 @@ import {
   tapeBags,
   tapeHolders,
   tapeStats,
+  tapeStatsAfter,
+  WALK_THROUGH,
 } from "./db.ts";
 import { FomoError, leaderboard, WINDOWS } from "./fomo.ts";
 import { limits, ms } from "./limits.ts";
@@ -244,10 +247,36 @@ const walletOf = new Map(wallets.map((w) => [w.address, w]));
  * The books cover the page's window; what is still open is marked now, because a position
  * has no window, and `total` is the two together.
  */
+/**
+ * What each wallet did inside the window: how many fills, how much they came to, and when it
+ * last traded. A window reaching back past the tape's first fill is the whole tape, and the
+ * books already hold the whole tape — the walk that writes them reads every fill there is. So
+ * only what landed after that walk is read here, which is a seek instead of a pass over
+ * everything: measured against the object, a couple of thousand rows against a hundred and
+ * twenty-six thousand.
+ */
+function walked(sinceTs: number, books: Map<string, StatRow>): ReturnType<typeof tapeStats> {
+  const through = Number(getMeta(WALK_THROUGH) ?? 0);
+  if (through === 0 || !coversTape(sinceTs)) return tapeStats(sinceTs);
+  const after = new Map(tapeStatsAfter(through).map((row) => [row.wallet, row]));
+  const rows = [...books.values()].map((book) => {
+    const since = after.get(book.wallet);
+    return {
+      wallet: book.wallet,
+      fills: book.buys + book.sells + (since?.fills ?? 0),
+      volume: book.tape_volume + (since?.volume ?? 0),
+      last_ts: Math.max(book.last_ts ?? 0, since?.last_ts ?? 0),
+    };
+  });
+  // A wallet whose first trade landed after the walk has no book row to add to yet.
+  for (const [wallet, row] of after) if (!books.has(wallet)) rows.push(row);
+  return rows;
+}
+
 export function ranking(sinceTs: number, window: string, limit: number): Trader[] {
   const label = pnlWindow(window);
-  const stats = new Map(measure("traders:tape", () => tapeStats(sinceTs)).map((row) => [row.wallet, row]));
   const { books, rank } = measure("traders:books", standing);
+  const stats = new Map(measure("traders:tape", () => walked(sinceTs, books)).map((row) => [row.wallet, row]));
   const place = rank.get(label);
   // Every tracked wallet is a row, traded or not: an empty `here` says a name is between
   // trades better than an absent row does.

@@ -48,6 +48,11 @@ const stmt = {
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
        FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
   ),
+  /** The same aggregate over the fills stored since a given row: what the books have not seen. */
+  perWalletAfter: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
+    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
+       FROM fills WHERE rowid > ? GROUP BY wallet`,
+  ),
   total: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM fills"),
   // Separate from the count on purpose: alone, each of these is one seek down fills_ts, while
   // the same query that also counts has to walk every row to do it.
@@ -138,6 +143,14 @@ function slice(sinceTs: number): boolean {
 
 export const tapeStats = (sinceTs: number) =>
   (slice(sinceTs) ? stmt.perWalletSeeked : stmt.perWalletGrouped).all(sinceTs);
+/** What the tape has recorded since the row the books were walked through. */
+export const tapeStatsAfter = (id: number) => stmt.perWalletAfter.all(id);
+/** Whether a window reaches back past the first fill the tape still holds, which makes its
+ *  answer the whole tape's — and the whole tape is what the books were walked over. */
+export function coversTape(sinceTs: number): boolean {
+  const { first_ts } = counts();
+  return first_ts !== null && sinceTs <= first_ts;
+}
 export function counts(): { trades: number; first_ts: number | null; last_ts: number | null } {
   if (held < 0) held = stmt.total.get()!.n;
   return { trades: held, ...stmt.edges.get()! };
