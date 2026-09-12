@@ -200,3 +200,16 @@ test("the bags behind a page are that page's positions, not every position four 
   expect(detail).toContain("SEARCH p USING PRIMARY KEY (token=?)");
   expect(detail).not.toContain("SCAN positions");
 });
+
+test("what the books have not seen yet is a row range, not the tape grouped again", () => {
+  // The rows stored since the walk are a handful at the end of the table, but the aggregate is
+  // a GROUP BY wallet — and left to itself the planner takes the index that grouping wants and
+  // walks all of it, which is the pass the books exist to save.
+  const detail = plan(
+    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
+       FROM fills NOT INDEXED WHERE rowid > ? GROUP BY wallet`,
+    0,
+  );
+  expect(detail).toContain("SEARCH fills USING INTEGER PRIMARY KEY (rowid>?)");
+  expect(detail).not.toContain("SCAN fills");
+});

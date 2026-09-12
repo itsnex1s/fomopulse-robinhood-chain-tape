@@ -48,10 +48,12 @@ const stmt = {
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
        FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
   ),
-  /** The same aggregate over the fills stored since a given row: what the books have not seen. */
+  /** The same aggregate over the fills stored since a given row: what the books have not seen.
+   *  NOT INDEXED, or the planner takes the index its GROUP BY already wants and walks every
+   *  fill down it to find the handful past the row — which is the pass this exists to avoid. */
   perWalletAfter: db.query<{ wallet: string; fills: number; volume: number; last_ts: number }, [number]>(
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
-       FROM fills WHERE rowid > ? GROUP BY wallet`,
+       FROM fills NOT INDEXED WHERE rowid > ? GROUP BY wallet`,
   ),
   total: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM fills"),
   // Separate from the count on purpose: alone, each of these is one seek down fills_ts, while
