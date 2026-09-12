@@ -1,3 +1,4 @@
+import { measure } from "./api/budget.ts";
 import type { Bag, Trader } from "./api/types.ts";
 import { chainConfig, wallets } from "./config.ts";
 import {
@@ -294,8 +295,8 @@ export function ranking(sinceTs: number, window: string, limit: number): Trader[
 /** What the tracked traders are sitting in, by token: net positions off the fills, marked
  *  at the feed's price, with the token's flow inside the window beside them. */
 export function bagList(sinceTs: number, limit: number): Bag[] {
-  const bags = tapeBags(sinceTs, limit);
-  const holders = tapeHolders(bags.map((bag) => bag.token));
+  const bags = measure("bags:page", () => tapeBags(sinceTs, limit));
+  const holders = measure("bags:holders", () => tapeHolders(bags.map((bag) => bag.token)));
   return bags.map((bag): Bag => {
     const firstBuyer = bag.first_buyer ? walletOf.get(bag.first_buyer as `0x${string}`) : undefined;
     const topHolder = bag.top_holder ? walletOf.get(bag.top_holder as `0x${string}`) : undefined;

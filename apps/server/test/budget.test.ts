@@ -4,7 +4,7 @@
  */
 import { expect, test } from "bun:test";
 import "./support/memory.ts";
-import { BUDGET, budget, meterRows, projected, resetBudget, spend } from "../src/api/budget.ts";
+import { BUDGET, budget, measured, meterRows, projected, resetBudget, spend } from "../src/api/budget.ts";
 
 const MONTH_MS = 30 * 86_400_000;
 const TEN_MINUTES = 10 * 60_000;
@@ -38,5 +38,19 @@ test("without a meter the counting starts at the first answer that says what it 
   const started = Date.now();
   spend(BUDGET * (TEN_MINUTES / MONTH_MS));
   expect(projected(started + TEN_MINUTES) / BUDGET).toBeCloseTo(1, 1);
+  resetBudget();
+});
+
+test("the halves of the two heaviest pages each keep what they walked", async () => {
+  const { api } = await import("./support/api.ts");
+  resetBudget(0);
+  // A meter the pages read through, standing in for the platform's own row count.
+  let walked = 0;
+  meterRows(() => (walked += 100));
+  await api.request("/api/bags?window=24h&limit=7");
+  await api.request("/api/discover?window=24h&limit=7");
+  // Named apart, because a page and the query that fills in its strip are two different costs.
+  expect(Object.keys(measured()).sort()).toEqual(["bags:holders", "bags:page", "discover:buyers", "discover:page"]);
+  for (const part of Object.values(measured())) expect(part.runs).toBeGreaterThan(0);
   resetBudget();
 });
