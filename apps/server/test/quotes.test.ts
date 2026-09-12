@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import type { Hex } from "viem";
 import "./support/memory.ts";
-import { MAX_POOL_AGE, tokensToPrice } from "../src/db.ts";
+import { deleteFill, MAX_POOL_AGE, tokensToPrice } from "../src/db.ts";
 import { limits } from "../src/limits.ts";
 import { BATCH } from "../src/prices/dexscreener.ts";
 import { refreshPrices } from "../src/prices/feed.ts";
@@ -97,18 +97,17 @@ test("more marks than the call has room for and the stalest of them go first", (
 });
 
 test("one sweep and the next ask about different marks", async () => {
-  // More marks owed a sweep than one call holds, all equally stale. Two days back, so a
-  // couple of hundred of them are not the top of the tape every other test reads.
+  // More marks owed a sweep than one call holds, all equally stale, each on a fill young
+  // enough to keep its token in the sweep's reach.
   const many = Array.from(
     { length: BATCH + 40 },
     (_, n): Hex => `0x${"e".repeat(2)}${n.toString(16).padStart(38, "0")}`,
   );
-  many.forEach((token, n) => {
-    insertFills([
-      fill({ tx: `0xswept-${n}`, wallet: `0x${"a6".repeat(20)}`, token, ts: now - 2 * DAY, usd: 1, price: 1 }),
-    ]);
-    savePrice(token, quote, now - 3_600);
-  });
+  const spread = many.map((token, n) =>
+    fill({ tx: `0xswept-${n}`, wallet: `0x${"a6".repeat(20)}`, token, ts: now - 2 * DAY, usd: 1, price: 1 }),
+  );
+  insertFills(spread);
+  for (const token of many) savePrice(token, quote, now - 3_600);
 
   const real = Date.now;
   try {
@@ -122,5 +121,8 @@ test("one sweep and the next ask about different marks", async () => {
     expect(missed.filter((token) => second.includes(token))).not.toBeEmpty();
   } finally {
     Date.now = real;
+    // The suite shares one tape and a page of it is every test's page: two hundred fills in
+    // the middle of it push another test's oldest row off the end.
+    for (const f of spread) deleteFill(f.tx, f.logIndex);
   }
 });
