@@ -74,8 +74,8 @@ const stmt = {
   /** Positions read off our own tape, counting only wallets still long: a sale of tokens bought before the
    *  tape began nets negative and would hide what the others hold. `pnl` is average cost across the priced
    *  buys, no lot accounting. The window bounds the flow columns only. Parameters: the page's tokens as a
-   *  json array, and the window start. */
-  tapeBags: db.query<BagRow, [string, number]>(
+   *  json array, the window start and the chain the snapshot was taken for. */
+  tapeBags: db.query<BagRow, [string, number, number]>(
     /* The page is the small side of every join: named tokens seek into the positions by their
        primary key and into the fills by `fills_token_ts`. Left to itself the flow aggregate
        takes the index its GROUP BY already wants and walks the whole tape for it, whatever
@@ -127,10 +127,15 @@ const stmt = {
             COALESCE(w.traders_in, 0) AS traders_in,
             l.last_fill_ts AS last_fill_ts,
             o.first_buyer AS first_buyer, o.first_buy_ts AS first_buy_ts,
+            /* The chain is named as well as the token: it sits between them in the key, and
+               without it the seek stops at the token and every hour it has ever been held for
+               is read and sorted to find the one before the window. */
             (SELECT y.holders FROM bag_hours y
-              WHERE y.token = s.token AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS holders_then,
+              WHERE y.token = s.token AND y.network = ?3 AND y.ts <= ?2
+              ORDER BY y.ts DESC LIMIT 1) AS holders_then,
             (SELECT y.value FROM bag_hours y
-              WHERE y.token = s.token AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS value_then
+              WHERE y.token = s.token AND y.network = ?3 AND y.ts <= ?2
+              ORDER BY y.ts DESC LIMIT 1) AS value_then
        FROM want s
        LEFT JOIN bag b ON b.token = s.token
        LEFT JOIN tokens t ON t.address = s.token
@@ -149,11 +154,11 @@ export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
 
 /** Tokens the tracked wallets hold or moved lately: position columns from net fills, flow
  *  columns from the window. */
-export function tapeBags(sinceTs: number, limit: number): BagRow[] {
+export function tapeBags(sinceTs: number, limit: number, network: number): BagRow[] {
   positionsReady();
   const page = stmt.bagPage.all(limit).map((row) => row.token);
   if (page.length === 0) return [];
-  return stmt.tapeBags.all(JSON.stringify(page), sinceTs);
+  return stmt.tapeBags.all(JSON.stringify(page), sinceTs, network);
 }
 /**
  * How long the held set is kept before it is read off the positions again. It barely moves — a

@@ -236,3 +236,17 @@ test("a page of the tape behind a cursor is walked backwards from it, not sorted
   expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
   expect(detail).not.toContain("MULTI-INDEX OR");
 });
+
+test("what a bag was worth an hour ago is one seek, not every hour it has ever been held", () => {
+  // bag_hours is keyed on token, chain and hour in that order. Named without the chain, the
+  // seek stops at the token and reads every snapshot ever taken of it, then sorts them to find
+  // the one before the window — twice on a bags row and once on a discover row.
+  const detail = plan(
+    "SELECT h.holders FROM bag_hours h WHERE h.token = ? AND h.network = ? AND h.ts <= ? ORDER BY h.ts DESC LIMIT 1",
+    "0xtoken",
+    1,
+    0,
+  );
+  expect(detail).toContain("SEARCH h USING PRIMARY KEY (token=? AND network=? AND ts<?)");
+  expect(detail).not.toContain("TEMP B-TREE");
+});

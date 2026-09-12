@@ -1,6 +1,6 @@
 import { measure } from "./api/budget.ts";
 import type { Discover } from "./api/types.ts";
-import { wallets } from "./config.ts";
+import { chainConfig, wallets } from "./config.ts";
 import { discoverBuyers, discoverTokens } from "./db.ts";
 import { isStock } from "./stocks.ts";
 import { bookOf, traderOf } from "./traders.ts";
@@ -19,7 +19,7 @@ const walletOf = new Map(wallets.map((w) => [w.address, w]));
 export function discoverList(recentTs: number, limit: number): Discover[] {
   const now = Math.floor(Date.now() / 1000);
   // A tokenised stock has a pool like anything else and is never a discovery.
-  const rows = measure("discover:page", () => discoverTokens(now, recentTs, limit)).filter(
+  const rows = measure("discover:page", () => discoverTokens(now, recentTs, limit, chainConfig.id)).filter(
     (row) => !isStock(row.token),
   );
   const bought = measure("discover:buyers", () => discoverBuyers(rows.map((row) => row.token)));

@@ -324,7 +324,7 @@ export function ranking(sinceTs: number, window: string, limit: number): Trader[
 /** What the tracked traders are sitting in, by token: net positions off the fills, marked
  *  at the feed's price, with the token's flow inside the window beside them. */
 export function bagList(sinceTs: number, limit: number): Bag[] {
-  const bags = measure("bags:page", () => tapeBags(sinceTs, limit));
+  const bags = measure("bags:page", () => tapeBags(sinceTs, limit, chainConfig.id));
   const holders = measure("bags:holders", () => tapeHolders(bags.map((bag) => bag.token)));
   return bags.map((bag): Bag => {
     const firstBuyer = bag.first_buyer ? walletOf.get(bag.first_buyer as `0x${string}`) : undefined;

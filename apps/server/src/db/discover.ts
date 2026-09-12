@@ -116,7 +116,7 @@ const stmt = {
    * bought, and the buys that were cancelled minutes later. Each one is a seek apiece rather
    * than a pass over every young pool, which is what these cost before the page was known.
    */
-  detail: db.query<DetailRow, [string, number]>(
+  detail: db.query<DetailRow, [string, number, number]>(
     `SELECT w.value AS token,
             (SELECT COUNT(*) FROM positions po
               WHERE po.token = w.value AND po.amount > po.gross * ${RESIDUE}) AS holders,
@@ -126,8 +126,11 @@ const stmt = {
               WHERE po.token = w.value AND po.first_buy_ts IS NOT NULL
               ORDER BY po.first_buy_ts, po.wallet LIMIT 1) AS first_buyer,
             (SELECT MIN(po.first_buy_ts) FROM positions po WHERE po.token = w.value) AS first_buy_ts,
+            /* The chain is named as well as the token: it sits between them in the key, and
+               without it the seek stops at the token and reads every hour it has been held. */
             (SELECT h.holders FROM bag_hours h
-              WHERE h.token = w.value AND h.ts <= ?2 ORDER BY h.ts DESC LIMIT 1) AS holders_then,
+              WHERE h.token = w.value AND h.network = ?3 AND h.ts <= ?2
+              ORDER BY h.ts DESC LIMIT 1) AS holders_then,
             /* What the token was worth when the first tracked wallet bought it: that fill's own
                price over the supply stamped on it, falling back to the supply the feed implies.
                Null where the fill had no cash leg and took the price of the quote still standing —
@@ -159,7 +162,7 @@ type DetailRow = Pick<
 
 /** Young pools a tracked wallet has bought into, deepest cuts already applied. `recentTs` is
  *  what "just now" means for the page: the buyer count and the holder delta are read against it. */
-export function discoverTokens(now: number, recentTs: number, limit: number): DiscoverRow[] {
+export function discoverTokens(now: number, recentTs: number, limit: number, network: number): DiscoverRow[] {
   positionsReady();
   const page = stmt.page.all({
     $born: (now - MAX_POOL_AGE) * 1_000,
@@ -170,7 +173,7 @@ export function discoverTokens(now: number, recentTs: number, limit: number): Di
   });
   if (page.length === 0) return [];
   const detail = new Map(
-    stmt.detail.all(JSON.stringify(page.map((row) => row.token)), recentTs).map((row) => [row.token, row]),
+    stmt.detail.all(JSON.stringify(page.map((row) => row.token)), recentTs, network).map((row) => [row.token, row]),
   );
   return page.map((row) => ({ ...row, ...detail.get(row.token)!, holders: detail.get(row.token)!.holders ?? 0 }));
 }
