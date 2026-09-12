@@ -59,11 +59,34 @@ const stmt = {
   /** When each token was last quoted. One row per token the tape has ever priced, which is
    *  a few hundred against a tape of millions of fills, and it is the half that moves. */
   quotedAt: db.query<{ token: string; updated_at: number }, []>("SELECT token, updated_at FROM prices"),
+  /**
+   * Which tokens the page shows, and nothing else. The order is the bag's worth, which is the
+   * positions against the quote, so the tape is not read to decide it — and once the page is
+   * known, everything below is asked of a couple of hundred tokens rather than of all of them.
+   */
+  bagPage: db.query<{ token: string }, [number]>(
+    `SELECT b.token AS token
+       FROM (SELECT token, SUM(amount) AS amount FROM positions WHERE ${LONG} GROUP BY token) b
+       LEFT JOIN prices p ON p.token = b.token
+      ORDER BY b.amount * p.price_usd DESC
+      LIMIT ?1`,
+  ),
   /** Positions read off our own tape, counting only wallets still long: a sale of tokens bought before the
    *  tape began nets negative and would hide what the others hold. `pnl` is average cost across the priced
-   *  buys, no lot accounting. The window bounds the flow columns only. Parameters: window start, row limit. */
-  tapeBags: db.query<BagRow, [number, number]>(
-    `WITH pos AS (${POSITIONS}),
+   *  buys, no lot accounting. The window bounds the flow columns only. Parameters: the page's tokens as a
+   *  json array, and the window start. */
+  tapeBags: db.query<BagRow, [string, number]>(
+    /* The page is the small side of every join: named tokens seek into the positions by their
+       primary key and into the fills by `fills_token_ts`. Left to itself the flow aggregate
+       takes the index its GROUP BY already wants and walks the whole tape for it, whatever
+       the window says — which was most of what this answer cost. */
+    `WITH want AS (SELECT j.value AS token FROM json_each(?1) j),
+     pos AS (
+       SELECT p.token AS token, p.wallet AS wallet, p.amount AS amount, p.gross AS gross,
+              p.bought_usd AS bought_usd, p.bought_amount AS bought_amount,
+              p.last_ts AS last_ts, p.first_buy_ts AS first_buy_ts
+         FROM want w CROSS JOIN positions p ON p.token = w.token
+     ),
      bag AS (
        SELECT token, COUNT(*) AS holders, SUM(amount) AS amount,
               SUM(bought_usd) AS bought_usd, SUM(bought_amount) AS bought_amount
@@ -73,11 +96,12 @@ const stmt = {
        SELECT token, MAX(amount) AS amount, wallet AS holder FROM pos WHERE ${LONG} GROUP BY token
      ),
      flow AS (
-       SELECT token, COUNT(*) AS fills, COALESCE(SUM(side = 'buy'), 0) AS buys,
-              COALESCE(SUM(CASE WHEN side = 'buy' THEN usd END), 0) AS bought_usd,
-              COALESCE(SUM(CASE WHEN side = 'sell' THEN usd END), 0) AS sold_usd,
-              COUNT(DISTINCT wallet) AS traders_in
-         FROM fills WHERE dust = 0 AND ts >= ?1 GROUP BY token
+       SELECT f.token AS token, COUNT(*) AS fills, COALESCE(SUM(f.side = 'buy'), 0) AS buys,
+              COALESCE(SUM(CASE WHEN f.side = 'buy' THEN f.usd END), 0) AS bought_usd,
+              COALESCE(SUM(CASE WHEN f.side = 'sell' THEN f.usd END), 0) AS sold_usd,
+              COUNT(DISTINCT f.wallet) AS traders_in
+         FROM want w CROSS JOIN fills f ON f.token = w.token
+        WHERE f.dust = 0 AND f.ts >= ?2 GROUP BY f.token
      ),
      life AS (
        SELECT token, MAX(last_ts) AS last_fill_ts FROM pos GROUP BY token
@@ -85,11 +109,6 @@ const stmt = {
      opened AS (
        SELECT token, MIN(first_buy_ts) AS first_buy_ts, wallet AS first_buyer
          FROM pos WHERE first_buy_ts IS NOT NULL GROUP BY token
-     ),
-     shown AS (
-       SELECT token FROM bag
-       UNION
-       SELECT token FROM flow
      )
      SELECT s.token AS token, p.image_url AS image_url,
             t.symbol AS symbol, t.name AS name,
@@ -109,10 +128,10 @@ const stmt = {
             l.last_fill_ts AS last_fill_ts,
             o.first_buyer AS first_buyer, o.first_buy_ts AS first_buy_ts,
             (SELECT y.holders FROM bag_hours y
-              WHERE y.token = s.token AND y.ts <= ?1 ORDER BY y.ts DESC LIMIT 1) AS holders_then,
+              WHERE y.token = s.token AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS holders_then,
             (SELECT y.value FROM bag_hours y
-              WHERE y.token = s.token AND y.ts <= ?1 ORDER BY y.ts DESC LIMIT 1) AS value_then
-       FROM shown s
+              WHERE y.token = s.token AND y.ts <= ?2 ORDER BY y.ts DESC LIMIT 1) AS value_then
+       FROM want s
        LEFT JOIN bag b ON b.token = s.token
        LEFT JOIN tokens t ON t.address = s.token
        LEFT JOIN prices p ON p.token = s.token
@@ -120,8 +139,7 @@ const stmt = {
        LEFT JOIN flow w ON w.token = s.token
        LEFT JOIN life l ON l.token = s.token
        LEFT JOIN opened o ON o.token = s.token
-      ORDER BY value DESC
-      LIMIT ?2`,
+      ORDER BY value DESC`,
   ),
 };
 
@@ -133,7 +151,9 @@ export type BagRow = Omit<Bag, "is_stock" | "holders_list">;
  *  columns from the window. */
 export function tapeBags(sinceTs: number, limit: number): BagRow[] {
   positionsReady();
-  return stmt.tapeBags.all(sinceTs, limit);
+  const page = stmt.bagPage.all(limit).map((row) => row.token);
+  if (page.length === 0) return [];
+  return stmt.tapeBags.all(JSON.stringify(page), sinceTs);
 }
 /**
  * How long the held set is kept before it is read off the positions again. It barely moves — a

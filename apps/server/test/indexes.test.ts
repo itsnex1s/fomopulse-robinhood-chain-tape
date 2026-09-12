@@ -180,3 +180,32 @@ test("the page's first buyer is a seek per pool, not a walk of every position", 
   expect(detail).toContain("SEARCH p USING PRIMARY KEY (token=?)");
   expect(detail).not.toContain("SCAN p");
 });
+
+test("a page of bags reads the tape for its own tokens, not the tape for its own window", () => {
+  // The flow columns are a GROUP BY token, and left to itself the planner takes the index that
+  // grouping already wants and walks every fill down it — the same cost whatever the window
+  // says, which is what this answer used to pay. Named tokens turn it into a seek apiece.
+  const detail = plan(
+    `WITH want AS (SELECT j.value AS token FROM json_each(?1) j)
+     SELECT f.token AS token, COUNT(*) AS fills, COUNT(DISTINCT f.wallet) AS traders_in
+       FROM want w CROSS JOIN fills f ON f.token = w.token
+      WHERE f.dust = 0 AND f.ts >= ?2 GROUP BY f.token`,
+    "[]",
+    0,
+  );
+  expect(detail).toContain("SEARCH f USING INDEX fills_token_ts (token=? AND ts>?)");
+  expect(detail).not.toContain("SCAN f");
+  expect(detail).not.toContain("SCAN fills");
+});
+
+test("the bags behind a page are that page's positions, not every position four times over", () => {
+  const detail = plan(
+    `WITH want AS (SELECT j.value AS token FROM json_each(?1) j),
+     pos AS (SELECT p.token AS token, p.wallet AS wallet, p.amount AS amount, p.gross AS gross
+               FROM want w CROSS JOIN positions p ON p.token = w.token)
+     SELECT token, COUNT(*) AS holders FROM pos WHERE amount > gross * 1e-12 GROUP BY token`,
+    "[]",
+  );
+  expect(detail).toContain("SEARCH p USING PRIMARY KEY (token=?)");
+  expect(detail).not.toContain("SCAN positions");
+});
