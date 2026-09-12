@@ -1,6 +1,7 @@
 /** Discover: the young pools a tracked wallet bought into, and everything the page cuts before it. */
 import { expect, test } from "bun:test";
-import { MAX_QUOTE_AGE } from "../src/db.ts";
+import type { Hex } from "viem";
+import { MAX_QUOTE_AGE, MAX_SPRAY } from "../src/db.ts";
 import { api, fill, insertFills, now, savePrice, saveToken, wallets } from "./support/api.ts";
 
 const HOUR = 3_600;
@@ -247,4 +248,46 @@ test("a pool the feed has stopped answering for keeps the card it had and not th
   ]);
 
   expect((await page(66)).map((r) => r.token)).not.toContain(token);
+});
+
+test("a token that dusted its way onto the tape is not a token the page found", async () => {
+  // Two real buyers apiece, and the only difference between them is how many wallets the
+  // token was handed to: one either side of what the page calls a spray.
+  const pushed: Hex = "0xd15c000000000000000000000000000000000009";
+  const seen: Hex = "0xd15c00000000000000000000000000000000000a";
+  const sprayed = (token: Hex, handouts: number, from: number) => {
+    saveToken(token, 18, "SPRAY", "Spray");
+    pool(token);
+    insertFills([
+      fill({ tx: `0xdisc-bought-${from}`, block: from, ts: now - HOUR, wallet: wallets[32]!.address, token, usd: 100 }),
+      fill({
+        tx: `0xdisc-bought-${from + 1}`,
+        block: from + 1,
+        ts: now - HOUR,
+        wallet: wallets[33]!.address,
+        token,
+        usd: 100,
+      }),
+      ...Array.from({ length: handouts }, (_, n) =>
+        fill({
+          tx: `0xdisc-sprayed-${from}-${n}`,
+          block: from + 2 + n,
+          ts: now - HOUR,
+          wallet: wallets[34 + n]!.address,
+          token,
+          amount: 1_000,
+          usd: 0,
+          price: null,
+          priced: "unpriced",
+          dust: 2,
+        }),
+      ),
+    ]);
+  };
+  sprayed(pushed, 2 * MAX_SPRAY + 1, 60);
+  sprayed(seen, 2 * MAX_SPRAY, 100);
+
+  const tokens = (await page(67)).map((r) => r.token);
+  expect(tokens).not.toContain(pushed);
+  expect(tokens).toContain(seen);
 });

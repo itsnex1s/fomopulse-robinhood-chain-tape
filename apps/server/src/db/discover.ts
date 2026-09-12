@@ -27,6 +27,13 @@ export const MAX_CHURN = 20;
  * answer, not its queue.
  */
 export const MAX_QUOTE_AGE = 3_600;
+/**
+ * Handouts per real fill, past which the token is pushing itself rather than being bought. A
+ * launch that sprays the tracked wallets buys its way onto their tape: the page ranks on who
+ * is in a token, and a thousand dustings next to twenty buys is what that ranking is being
+ * played with. Counted off this tape's own dust verdict, not the feed's.
+ */
+export const MAX_SPRAY = 5;
 /** A buy and a sell by one wallet this close together and this near the same size cancel:
  *  nothing moved and the tape carries the volume anyway. Counted, never hidden here. */
 const WASH_SECONDS = 300;
@@ -119,6 +126,7 @@ const stmt = {
        JOIN flow w ON w.token = y.token
        JOIN tokens t ON t.address = y.token
       WHERE w.buyers > 0 AND t.symbol IS NOT NULL
+        AND w.dusted <= w.fills * ${MAX_SPRAY}
       ORDER BY w.buyers_recent DESC, w.buyers DESC, y.pair_created_at DESC
       LIMIT $limit`,
   ),
