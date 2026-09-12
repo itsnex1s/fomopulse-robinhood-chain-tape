@@ -28,6 +28,13 @@ export const MAX_CHURN = 20;
  */
 export const MAX_QUOTE_AGE = 3_600;
 /**
+ * Buys a pool has to have taken before no sell at all is a fact about the token rather than
+ * about its age. A pool the feed reports dozens of entries and not one exit from is the shape
+ * a honeypot leaves: the buy works for everyone and the sell works for nobody. Under this many
+ * it is only early, and the page says nothing.
+ */
+export const HONEYPOT_BUYS = 10;
+/**
  * Handouts per real fill, past which the token is pushing itself rather than being bought. A
  * launch that sprays the tracked wallets buys its way onto their tape: the page ranks on who
  * is in a token, and a thousand dustings next to twenty buys is what that ranking is being
@@ -79,11 +86,12 @@ const stmt = {
    * that is asked of the page's own tokens below.
    *
    * Parameters: the oldest pool birth in milliseconds, the window start in seconds, the oldest
-   * quote that still counts, the pool floor, the churn ceiling and the row limit.
+   * quote that still counts, the pool floor, the buys that make no exit mean something, the
+   * churn ceiling and the row limit.
    */
   page: db.query<
     PageRow,
-    { $born: number; $recent: number; $fresh: number; $pool: number; $churn: number; $limit: number }
+    { $born: number; $recent: number; $fresh: number; $pool: number; $exits: number; $churn: number; $limit: number }
   >(
     /* The pools are the small side of the join — a few hundred against the whole tape — and left
        to itself the planner walks the fills instead, which is every fill this tape holds read for
@@ -98,6 +106,8 @@ const stmt = {
         WHERE p.pair_created_at IS NOT NULL AND p.pair_created_at >= $born
           AND p.updated_at >= $fresh
           AND p.liquidity_usd >= $pool
+          /* Null is the feed not saying, which is not the same as a pool nobody got out of. */
+          AND (p.sells24 IS NULL OR p.sells24 > 0 OR COALESCE(p.buys24, 0) < $exits)
           AND (p.volume24 IS NULL OR p.volume24 <= p.liquidity_usd * $churn)
      ),
      flow AS (
@@ -189,6 +199,7 @@ export function discoverTokens(now: number, recentTs: number, limit: number, net
     $recent: recentTs,
     $fresh: now - MAX_QUOTE_AGE,
     $pool: MIN_POOL_USD,
+    $exits: HONEYPOT_BUYS,
     $churn: MAX_CHURN,
     $limit: limit,
   });

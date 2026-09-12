@@ -1,7 +1,7 @@
 /** Discover: the young pools a tracked wallet bought into, and everything the page cuts before it. */
 import { expect, test } from "bun:test";
 import type { Hex } from "viem";
-import { MAX_QUOTE_AGE, MAX_SPRAY } from "../src/db.ts";
+import { HONEYPOT_BUYS, MAX_QUOTE_AGE, MAX_SPRAY } from "../src/db.ts";
 import { api, fill, insertFills, now, savePrice, saveToken, wallets } from "./support/api.ts";
 
 const HOUR = 3_600;
@@ -14,7 +14,15 @@ const page = async (limit: number) => {
 
 const pool = (
   token: string,
-  over: Partial<{ liquidity: number; volume24: number; born: number; mcap: number; quoted: number }> = {},
+  over: Partial<{
+    liquidity: number;
+    volume24: number;
+    born: number;
+    mcap: number;
+    quoted: number;
+    buys24: number;
+    sells24: number;
+  }> = {},
 ) =>
   savePrice(
     token,
@@ -26,6 +34,8 @@ const pool = (
       pair: `${token}pool`,
       volume24: over.volume24 ?? 30_000,
       marketCap: over.mcap ?? 200_000,
+      buys24: over.buys24 ?? 100,
+      sells24: over.sells24 ?? 80,
     },
     over.quoted ?? now,
   );
@@ -290,4 +300,24 @@ test("a token that dusted its way onto the tape is not a token the page found", 
   const tokens = (await page(67)).map((r) => r.token);
   expect(tokens).not.toContain(pushed);
   expect(tokens).toContain(seen);
+});
+
+test("a pool dozens of people bought and nobody sold is not a discovery, and a young one is", async () => {
+  const trap: Hex = "0xd15c00000000000000000000000000000000000b";
+  const early: Hex = "0xd15c00000000000000000000000000000000000c";
+  saveToken(trap, 18, "TRAP", "Trap");
+  saveToken(early, 18, "EARLY", "Early");
+  // The buy works for everyone and the sell works for nobody.
+  pool(trap, { buys24: HONEYPOT_BUYS, sells24: 0 });
+  // No exit either, and nothing to read into it yet.
+  pool(early, { buys24: HONEYPOT_BUYS - 1, sells24: 0 });
+  insertFills(
+    [trap, early].map((token, n) =>
+      fill({ tx: `0xdisc-trap-${n}`, block: 200 + n, ts: now - HOUR, wallet: wallets[50 + n]!.address, token }),
+    ),
+  );
+
+  const tokens = (await page(68)).map((r) => r.token);
+  expect(tokens).not.toContain(trap);
+  expect(tokens).toContain(early);
 });
