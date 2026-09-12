@@ -8,23 +8,23 @@ import { expect, test } from "bun:test";
 import "./support/memory.ts";
 import { db } from "../src/db.ts";
 
-/** The two joins of the discover page, with the CTE they hang off, as db/discover.ts writes them. */
+/** The ranking half of the discover page, with the CTE it hangs off, as db/discover.ts writes it. */
 const discoverPlan = `WITH young AS MATERIALIZED (
-    SELECT p.token AS token FROM prices p WHERE p.pair_created_at >= 1 AND p.liquidity_usd >= 2
+    SELECT q.token AS token FROM prices q WHERE q.pair_created_at >= 1 AND q.liquidity_usd >= 2
   ),
   flow AS (
-    SELECT f.token AS token, COUNT(*) AS fills FROM young y CROSS JOIN fills f ON f.token = y.token GROUP BY f.token
-  ),
-  washed AS (
-    SELECT a.token AS token, COUNT(*) AS flips
-      FROM young y
-      CROSS JOIN fills a ON a.token = y.token
-      JOIN fills b ON b.wallet = a.wallet AND b.token = a.token AND b.ts > a.ts AND b.ts <= a.ts + 300
-     WHERE a.dust = 0 AND b.dust = 0 AND a.side = 'buy' AND b.side = 'sell'
-     GROUP BY a.token
+    SELECT f.token AS token, COUNT(*) AS fills, COUNT(DISTINCT f.wallet) AS buyers
+      FROM young y CROSS JOIN fills f ON f.token = y.token GROUP BY f.token
   )
-  SELECT y.token, flow.fills, washed.flips FROM young y
-    LEFT JOIN flow ON flow.token = y.token LEFT JOIN washed ON washed.token = y.token`;
+  SELECT y.token, flow.fills, flow.buyers FROM young y JOIN flow ON flow.token = y.token`;
+
+/** The half asked of the page's own tokens once the ranking has chosen them. */
+const detailPlan = `SELECT w.value AS token,
+    (SELECT COUNT(*) FROM positions po WHERE po.token = w.value AND po.amount > po.gross * 1e-12) AS holders,
+    (SELECT COUNT(*) FROM fills a
+       JOIN fills b ON b.wallet = a.wallet AND b.token = a.token AND b.ts > a.ts AND b.ts <= a.ts + 300
+      WHERE a.token = w.value AND a.dust = 0 AND b.dust = 0 AND a.side = 'buy' AND b.side = 'sell') AS wash
+   FROM json_each(?1) w LEFT JOIN prices p ON p.token = w.value`;
 
 // Prepared rather than queried, and let go of by hand: `query` keeps its statement in the
 // database's cache, and a cached plan over a write is a statement bun still counts as running
@@ -91,15 +91,23 @@ test("the fills owed a price are read by time, not token by token", () => {
   expect(detail).not.toContain("SCAN fills");
 });
 
-test("the discover page walks the young pools, not the whole tape twice over", () => {
-  // The pools are the small side of every join on that page. Left to itself the planner walks
-  // the fills instead — once for the flow and once for the wash pairs — which is the entire
-  // tape read twice for a page about the last three days.
+test("the discover ranking walks the young pools, not the whole tape", () => {
+  // The pools are the small side of the join. Left to itself the planner walks the fills
+  // instead, which is the entire tape read for a page about the last three days.
   const detail = plan(discoverPlan);
   expect(detail).not.toContain("SCAN f USING");
-  expect(detail).not.toContain("SCAN a USING");
-  expect(detail).toContain("SEARCH f USING COVERING INDEX fills_token_ts (token=?)");
+  expect(detail).toContain("SEARCH f USING INDEX fills_token_ts (token=?)");
+});
+
+test("what a discover row carries beyond its rank is a seek per token, not a pass per pool", () => {
+  // Holders, the first buyer, the wash pairs: none of them decides the order, so none of them
+  // is owed for a pool that never reaches the page.
+  const detail = plan(detailPlan, "[]");
+  expect(detail).toContain("SEARCH po USING PRIMARY KEY (token=?)");
   expect(detail).toContain("SEARCH a USING INDEX fills_token_ts (token=?)");
+  expect(detail).toContain("SEARCH b USING INDEX fills_wallet_token_ts");
+  expect(detail).not.toContain("SCAN fills");
+  expect(detail).not.toContain("SCAN positions");
 });
 
 test("the quotes carry no index that every sweep would have to rewrite", () => {
@@ -162,23 +170,6 @@ test("the crowd behind a page is one seek per token, not a walk of the tape", ()
   );
   expect(detail).toContain("SEARCH q USING INDEX fills_token_ts (token=? AND ts>? AND ts<?)");
   expect(detail).not.toContain("SCAN q");
-});
-
-test("the page's first buyer is a seek per pool, not a walk of every position", () => {
-  // Written the other way round — positions joined to the pools — the planner takes the
-  // positions as the outer table and walks all of them to name the first buyer of a couple
-  // of hundred tokens, which was three quarters of what the page read.
-  const detail = plan(`WITH young AS MATERIALIZED (
-      SELECT q.token AS token FROM prices q WHERE q.pair_created_at >= 1 AND q.liquidity_usd >= 2
-    )
-    SELECT token, first_buy_ts, wallet AS first_buyer FROM (
-      SELECT y.token AS token, p.first_buy_ts AS first_buy_ts, p.wallet AS wallet,
-             ROW_NUMBER() OVER (PARTITION BY y.token ORDER BY p.first_buy_ts, p.wallet) AS place
-        FROM young y CROSS JOIN positions p ON p.token = y.token
-       WHERE p.first_buy_ts IS NOT NULL
-    ) WHERE place = 1`);
-  expect(detail).toContain("SEARCH p USING PRIMARY KEY (token=?)");
-  expect(detail).not.toContain("SCAN p");
 });
 
 test("a page of bags reads the tape for its own tokens, not the tape for its own window", () => {

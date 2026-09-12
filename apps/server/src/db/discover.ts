@@ -58,13 +58,18 @@ export interface DiscoverRow {
 }
 
 const stmt = {
-  /** Parameters: the oldest pool birth in milliseconds, the window start in seconds, the pool
-   *  floor, the churn ceiling and the row limit. */
-  discover: db.query<DiscoverRow, { $born: number; $recent: number; $pool: number; $churn: number; $limit: number }>(
-    /* The pools are the small side of every join below — a few hundred against the whole tape —
-       and left to itself the planner walks the fills instead, once for the flow and once for the
-       wash pairs, which is every fill this tape holds read twice for a page about three days.
-       MATERIALIZED and CROSS JOIN say so: the same rows, in the order that reads the fewest. */
+  /**
+   * The page: which young pools it shows and in what order. The ranking is who bought, so the
+   * fills of every young pool are read here and nowhere else — everything a row carries beyond
+   * that is asked of the page's own tokens below.
+   *
+   * Parameters: the oldest pool birth in milliseconds, the window start in seconds, the pool
+   * floor, the churn ceiling and the row limit.
+   */
+  page: db.query<PageRow, { $born: number; $recent: number; $pool: number; $churn: number; $limit: number }>(
+    /* The pools are the small side of the join — a few hundred against the whole tape — and left
+       to itself the planner walks the fills instead, which is every fill this tape holds read for
+       a page about three days. MATERIALIZED and CROSS JOIN say so. */
     `WITH young AS MATERIALIZED (
        SELECT p.token AS token, p.price_usd AS price, p.updated_at AS quoted_at,
               p.liquidity_usd AS liquidity, p.change24 AS change24, p.volume24 AS volume24,
@@ -89,33 +94,6 @@ const stmt = {
               MAX(CASE WHEN f.dust = 0 THEN f.ts END) AS last_fill_ts
          FROM young y CROSS JOIN fills f ON f.token = y.token
         GROUP BY f.token
-     ),
-     bag AS (
-       SELECT p.token AS token, COUNT(*) AS holders
-         FROM young y CROSS JOIN positions p ON p.token = y.token
-        WHERE p.amount > p.gross * ${RESIDUE}
-        GROUP BY p.token
-     ),
-     /* Several wallets bought in the same second often enough to matter — a bundle enters
-        as one — so the tie is broken on the address rather than left to the query plan. */
-     opened AS (
-       SELECT token, first_buy_ts, wallet AS first_buyer FROM (
-         SELECT y.token AS token, p.first_buy_ts AS first_buy_ts, p.wallet AS wallet,
-                ROW_NUMBER() OVER (PARTITION BY y.token ORDER BY p.first_buy_ts, p.wallet) AS place
-           FROM young y CROSS JOIN positions p ON p.token = y.token
-          WHERE p.first_buy_ts IS NOT NULL
-       ) WHERE place = 1
-     ),
-     /* One wallet in and back out inside WASH_SECONDS at the same size, counted per token. */
-     washed AS (
-       SELECT a.token AS token, COUNT(*) AS flips
-         FROM young y
-         CROSS JOIN fills a ON a.token = y.token
-         JOIN fills b ON b.wallet = a.wallet AND b.token = a.token
-                     AND b.ts > a.ts AND b.ts <= a.ts + ${WASH_SECONDS}
-        WHERE a.dust = 0 AND b.dust = 0 AND a.side = 'buy' AND b.side = 'sell'
-          AND a.amount > 0 AND ABS(b.amount - a.amount) <= a.amount * ${WASH_TOLERANCE}
-        GROUP BY a.token
      )
      SELECT y.token AS token, t.symbol AS symbol, t.name AS name, y.image_url AS image_url,
             y.price AS price, y.quoted_at AS quoted_at, y.liquidity AS liquidity,
@@ -124,44 +102,77 @@ const stmt = {
             y.pair_created_at AS pair_created_at, y.pair_address AS pair_address,
             w.buyers AS buyers, w.buyers_recent AS buyers_recent, w.sellers AS sellers,
             w.fills AS fills, w.dusted AS dusted,
-            w.bought_usd AS bought_usd, w.sold_usd AS sold_usd, w.last_fill_ts AS last_fill_ts,
-            COALESCE(b.holders, 0) AS holders,
-            (SELECT h.holders FROM bag_hours h
-              WHERE h.token = y.token AND h.ts <= $recent ORDER BY h.ts DESC LIMIT 1) AS holders_then,
-            o.first_buyer AS first_buyer, o.first_buy_ts AS first_buy_ts,
-            /* What the token was worth when the first tracked wallet bought it: that fill's own
-               price over the supply stamped on it, falling back to the supply the feed implies.
-               Null where the fill had no cash leg and took the price of the quote still standing —
-               that is the same number twice, and it reads as a token that has not moved. */
-            (SELECT CASE WHEN f.priced = 'estimate' AND f.price = y.price THEN NULL
-                         ELSE f.price * COALESCE(f.supply, y.market_cap / NULLIF(y.price, 0)) END
-               FROM fills f
-              WHERE f.token = y.token AND f.dust = 0 AND f.side = 'buy' AND f.price IS NOT NULL
-              ORDER BY f.ts, f.log_index LIMIT 1) AS mcap_at,
-            COALESCE(sh.flips, 0) AS wash
+            w.bought_usd AS bought_usd, w.sold_usd AS sold_usd, w.last_fill_ts AS last_fill_ts
        FROM young y
        JOIN flow w ON w.token = y.token
        JOIN tokens t ON t.address = y.token
-       LEFT JOIN bag b ON b.token = y.token
-       LEFT JOIN opened o ON o.token = y.token
-       LEFT JOIN washed sh ON sh.token = y.token
       WHERE w.buyers > 0 AND t.symbol IS NOT NULL
       ORDER BY w.buyers_recent DESC, w.buyers DESC, y.pair_created_at DESC
       LIMIT $limit`,
   ),
+  /**
+   * What a row carries beyond the ranking, for the page's own tokens by name: who is holding,
+   * who opened it, how it stood an hour ago, what it was worth when the first tracked wallet
+   * bought, and the buys that were cancelled minutes later. Each one is a seek apiece rather
+   * than a pass over every young pool, which is what these cost before the page was known.
+   */
+  detail: db.query<DetailRow, [string, number]>(
+    `SELECT w.value AS token,
+            (SELECT COUNT(*) FROM positions po
+              WHERE po.token = w.value AND po.amount > po.gross * ${RESIDUE}) AS holders,
+            /* Several wallets bought in the same second often enough to matter — a bundle enters
+               as one — so the tie is broken on the address rather than left to the query plan. */
+            (SELECT po.wallet FROM positions po
+              WHERE po.token = w.value AND po.first_buy_ts IS NOT NULL
+              ORDER BY po.first_buy_ts, po.wallet LIMIT 1) AS first_buyer,
+            (SELECT MIN(po.first_buy_ts) FROM positions po WHERE po.token = w.value) AS first_buy_ts,
+            (SELECT h.holders FROM bag_hours h
+              WHERE h.token = w.value AND h.ts <= ?2 ORDER BY h.ts DESC LIMIT 1) AS holders_then,
+            /* What the token was worth when the first tracked wallet bought it: that fill's own
+               price over the supply stamped on it, falling back to the supply the feed implies.
+               Null where the fill had no cash leg and took the price of the quote still standing —
+               that is the same number twice, and it reads as a token that has not moved. */
+            (SELECT CASE WHEN f.priced = 'estimate' AND f.price = p.price_usd THEN NULL
+                         ELSE f.price * COALESCE(f.supply, p.market_cap / NULLIF(p.price_usd, 0)) END
+               FROM fills f
+              WHERE f.token = w.value AND f.dust = 0 AND f.side = 'buy' AND f.price IS NOT NULL
+              ORDER BY f.ts, f.log_index LIMIT 1) AS mcap_at,
+            /* One wallet in and back out inside WASH_SECONDS at the same size, counted per token. */
+            (SELECT COUNT(*) FROM fills a
+               JOIN fills b ON b.wallet = a.wallet AND b.token = a.token
+                           AND b.ts > a.ts AND b.ts <= a.ts + ${WASH_SECONDS}
+              WHERE a.token = w.value AND a.dust = 0 AND b.dust = 0
+                AND a.side = 'buy' AND b.side = 'sell'
+                AND a.amount > 0 AND ABS(b.amount - a.amount) <= a.amount * ${WASH_TOLERANCE}) AS wash
+       FROM json_each(?1) w
+       LEFT JOIN prices p ON p.token = w.value`,
+  ),
 };
+
+/** The ranking half of a row: the pool's card and what this tape saw happen in it. */
+type PageRow = Omit<DiscoverRow, "holders" | "holders_then" | "first_buyer" | "first_buy_ts" | "mcap_at" | "wash">;
+/** The half asked of the page's own tokens, once the page is known. */
+type DetailRow = Pick<
+  DiscoverRow,
+  "token" | "holders" | "holders_then" | "first_buyer" | "first_buy_ts" | "mcap_at" | "wash"
+>;
 
 /** Young pools a tracked wallet has bought into, deepest cuts already applied. `recentTs` is
  *  what "just now" means for the page: the buyer count and the holder delta are read against it. */
 export function discoverTokens(now: number, recentTs: number, limit: number): DiscoverRow[] {
   positionsReady();
-  return stmt.discover.all({
+  const page = stmt.page.all({
     $born: (now - MAX_POOL_AGE) * 1_000,
     $recent: recentTs,
     $pool: MIN_POOL_USD,
     $churn: MAX_CHURN,
     $limit: limit,
   });
+  if (page.length === 0) return [];
+  const detail = new Map(
+    stmt.detail.all(JSON.stringify(page.map((row) => row.token)), recentTs).map((row) => [row.token, row]),
+  );
+  return page.map((row) => ({ ...row, ...detail.get(row.token)!, holders: detail.get(row.token)!.holders ?? 0 }));
 }
 
 /** One wallet's entry into a token: when it first bought, and what it has put in since. */
