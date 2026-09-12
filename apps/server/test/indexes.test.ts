@@ -213,3 +213,26 @@ test("what the books have not seen yet is a row range, not the tape grouped agai
   expect(detail).toContain("SEARCH fills USING INTEGER PRIMARY KEY (rowid>?)");
   expect(detail).not.toContain("SCAN fills");
 });
+
+test("a page of the tape behind a cursor is walked backwards from it, not sorted out of everything below", () => {
+  // Spelled out as `ts < ? OR (ts = ? AND rowid < ?)` the planner reads the cursor as two index
+  // ranges, and two ranges have no single order — so it took every fill below the cursor and
+  // sorted them to find the four hundred newest. Measured against the object: 343,604 rows for
+  // a page of four hundred. As a row value it is one range, stopped by the LIMIT.
+  const detail = plan(
+    `SELECT f.rowid AS id, f.ts, f.wallet, f.token, t.symbol, f.usd, p.price_usd AS mark,
+            CASE WHEN f.side = 'buy' AND NOT EXISTS (
+              SELECT 1 FROM fills q WHERE q.wallet = f.wallet AND q.token = f.token AND q.side = 'buy' AND q.ts < f.ts
+            ) THEN 1 ELSE 0 END AS new_position
+       FROM fills f LEFT JOIN tokens t ON t.address = f.token LEFT JOIN prices p ON p.token = f.token
+      WHERE f.ts >= ? AND (f.ts, f.rowid) < (?, ?)
+      ORDER BY f.ts DESC, f.rowid DESC LIMIT ?`,
+    0,
+    0,
+    0,
+    1,
+  );
+  expect(detail).toContain("SEARCH f USING INDEX fills_ts");
+  expect(detail).not.toContain("TEMP B-TREE FOR ORDER BY");
+  expect(detail).not.toContain("MULTI-INDEX OR");
+});

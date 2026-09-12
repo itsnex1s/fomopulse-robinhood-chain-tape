@@ -220,13 +220,21 @@ const tapeStmt = db.query<Row, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ?
  *  the correlated subquery off rows the screen would hide anyway. */
 const tapeCleanStmt = db.query<Row, [number, number]>(`${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${TAPE_ORDER}`);
 const tapeByTxStmt = db.query<Row, [string]>(`${TAPE_SELECT} WHERE f.tx = ? ORDER BY f.rowid`);
-/** The same two reads continued from a row already on the screen. The cursor is time and id together, not time
- *  alone: a busy second carries a dozen fills, and a cursor on `ts` would repeat or skip the rest of it. */
-const OLDER = "AND (f.ts < ? OR (f.ts = ? AND f.rowid < ?))";
-const olderStmt = db.query<Row, [number, number, number, number, number]>(
+/**
+ * The same two reads continued from a row already on the screen. The cursor is time and id
+ * together, not time alone: a busy second carries a dozen fills, and a cursor on `ts` would
+ * repeat or skip the rest of it.
+ *
+ * Written as a row value rather than as the OR it means. Spelled out, the planner reads it as
+ * two index ranges, and two ranges cannot be walked in one order — so it took everything below
+ * the cursor and sorted it in a temp b-tree to find the four hundred newest. As a row value it
+ * is one range down `fills_ts`, walked backwards from the cursor and stopped by the LIMIT.
+ */
+const OLDER = "AND (f.ts, f.rowid) < (?, ?)";
+const olderStmt = db.query<Row, [number, number, number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? ${OLDER} ${TAPE_ORDER}`,
 );
-const olderCleanStmt = db.query<Row, [number, number, number, number, number]>(
+const olderCleanStmt = db.query<Row, [number, number, number, number]>(
   `${TAPE_SELECT} WHERE f.ts >= ? AND f.dust = 0 ${OLDER} ${TAPE_ORDER}`,
 );
 
@@ -294,7 +302,7 @@ function crowd(rows: Row[]): TapeRow[] {
 export const tape = (sinceTs: number, limit: number, withDust = true, before?: TapeCursor): TapeRow[] =>
   crowd(
     before
-      ? (withDust ? olderStmt : olderCleanStmt).all(sinceTs, before.ts, before.ts, before.id, limit)
+      ? (withDust ? olderStmt : olderCleanStmt).all(sinceTs, before.ts, before.id, limit)
       : (withDust ? tapeStmt : tapeCleanStmt).all(sinceTs, limit),
   );
 /** The stored rows of one transaction, so a broadcast carries the same shape as the REST tape. */
