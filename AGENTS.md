@@ -213,7 +213,7 @@ exports. A module with no exports listed is an entry point that runs on import.
                         PER_QUERY BagRow Holder
                         Bag aggregates off the fills, the holders of a whole page in one query,
                         and the hourly snapshot the window deltas are read against.
-    29b discover.ts     discoverTokens discoverBuyers MAX_POOL_AGE MIN_POOL_USD MAX_CHURN
+    29b discover.ts     discoverTokens buyersOf MAX_POOL_AGE MIN_POOL_USD MAX_CHURN
                         DiscoverRow Buyer
                         Young pools with what this tape saw happen in them, and who bought a
                         whole page of them. The cuts that decide what is a discovery live here.

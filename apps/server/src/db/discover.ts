@@ -1,4 +1,4 @@
-import { PER_QUERY, RESIDUE } from "./bags.ts";
+import { RESIDUE } from "./bags.ts";
 import { db } from "./connection.ts";
 import { positionsReady } from "./positions.ts";
 
@@ -55,6 +55,8 @@ export interface DiscoverRow {
   first_buy_ts: number | null;
   mcap_at: number | null;
   wash: number;
+  /** The row's own buyers, as `[wallet, first buy, usd]` triples; read with `buyersOf`. */
+  buyers_json: string | null;
 }
 
 const stmt = {
@@ -76,19 +78,31 @@ const stmt = {
           AND p.liquidity_usd >= $pool
           AND (p.volume24 IS NULL OR p.volume24 <= p.liquidity_usd * $churn)
      ),
-     flow AS (
-       SELECT f.token AS token,
-              COALESCE(SUM(f.dust = 0), 0) AS fills,
-              COALESCE(SUM(f.dust != 0), 0) AS dusted,
-              COUNT(DISTINCT CASE WHEN f.dust = 0 AND f.side = 'buy' THEN f.wallet END) AS buyers,
-              COUNT(DISTINCT CASE WHEN f.dust = 0 AND f.side = 'buy' AND f.ts >= $recent
-                                  THEN f.wallet END) AS buyers_recent,
-              COUNT(DISTINCT CASE WHEN f.dust = 0 AND f.side = 'sell' THEN f.wallet END) AS sellers,
-              COALESCE(SUM(CASE WHEN f.dust = 0 AND f.side = 'buy' THEN f.usd END), 0) AS bought_usd,
-              COALESCE(SUM(CASE WHEN f.dust = 0 AND f.side = 'sell' THEN f.usd END), 0) AS sold_usd,
-              MAX(CASE WHEN f.dust = 0 THEN f.ts END) AS last_fill_ts
+     /* One row per wallet and side on a young pool. The flow columns and the buyer strip are
+        this same grouping read two ways, so the fills behind both are walked once. */
+     per_wallet AS (
+       SELECT f.token AS token, f.wallet AS wallet, f.side AS side, f.dust AS dust,
+              COUNT(*) AS fills, SUM(f.usd) AS usd, MIN(f.ts) AS first_ts, MAX(f.ts) AS last_ts
          FROM young y CROSS JOIN fills f ON f.token = y.token
-        GROUP BY f.token
+        GROUP BY f.token, f.wallet, f.side, f.dust
+     ),
+     flow AS (
+       SELECT token,
+              COALESCE(SUM(CASE WHEN dust = 0 THEN fills END), 0) AS fills,
+              COALESCE(SUM(CASE WHEN dust != 0 THEN fills END), 0) AS dusted,
+              COUNT(DISTINCT CASE WHEN dust = 0 AND side = 'buy' THEN wallet END) AS buyers,
+              /* A wallet bought recently exactly when its last buy did, which the group carries. */
+              COUNT(DISTINCT CASE WHEN dust = 0 AND side = 'buy' AND last_ts >= $recent
+                                  THEN wallet END) AS buyers_recent,
+              COUNT(DISTINCT CASE WHEN dust = 0 AND side = 'sell' THEN wallet END) AS sellers,
+              COALESCE(SUM(CASE WHEN dust = 0 AND side = 'buy' THEN usd END), 0) AS bought_usd,
+              COALESCE(SUM(CASE WHEN dust = 0 AND side = 'sell' THEN usd END), 0) AS sold_usd,
+              MAX(CASE WHEN dust = 0 THEN last_ts END) AS last_fill_ts
+         FROM per_wallet GROUP BY token
+     ),
+     buyers_of AS (
+       SELECT token, json_group_array(json_array(wallet, first_ts, usd)) AS list
+         FROM per_wallet WHERE dust = 0 AND side = 'buy' GROUP BY token
      ),
      bag AS (
        SELECT p.token AS token, COUNT(*) AS holders
@@ -138,13 +152,15 @@ const stmt = {
                FROM fills f
               WHERE f.token = y.token AND f.dust = 0 AND f.side = 'buy' AND f.price IS NOT NULL
               ORDER BY f.ts, f.log_index LIMIT 1) AS mcap_at,
-            COALESCE(sh.flips, 0) AS wash
+            COALESCE(sh.flips, 0) AS wash,
+            bu.list AS buyers_json
        FROM young y
        JOIN flow w ON w.token = y.token
        JOIN tokens t ON t.address = y.token
        LEFT JOIN bag b ON b.token = y.token
        LEFT JOIN opened o ON o.token = y.token
        LEFT JOIN washed sh ON sh.token = y.token
+       LEFT JOIN buyers_of bu ON bu.token = y.token
       WHERE w.buyers > 0 AND t.symbol IS NOT NULL
       ORDER BY w.buyers_recent DESC, w.buyers DESC, y.pair_created_at DESC
       LIMIT $limit`,
@@ -171,30 +187,10 @@ export interface Buyer {
   usd: number | null;
 }
 
-/**
- * Who bought a whole page of tokens, earliest first. The tokens are all known before the
- * first of them is needed, so they go together — and the page ranks its rows by who is in
- * them, which needs every buyer rather than the largest few.
- */
-export function discoverBuyers(tokens: string[]): Map<string, Buyer[]> {
-  const bought = new Map<string, Buyer[]>();
-  for (let from = 0; from < tokens.length; from += PER_QUERY) {
-    const batch = tokens.slice(from, from + PER_QUERY);
-    const rows = db
-      .query<{ token: string; wallet: string; ts: number; usd: number | null }, string[]>(
-        `SELECT token, wallet, MIN(ts) AS ts, SUM(usd) AS usd
-           FROM fills
-          WHERE token IN (${batch.map(() => "?").join(", ")}) AND dust = 0 AND side = 'buy'
-          GROUP BY token, wallet
-          ORDER BY token, ts`,
-      )
-      .all(...batch);
-    for (const row of rows) {
-      const list = bought.get(row.token);
-      const buyer = { wallet: row.wallet, ts: row.ts, usd: row.usd };
-      if (list === undefined) bought.set(row.token, [buyer]);
-      else list.push(buyer);
-    }
-  }
-  return bought;
+/** The buyers the row carries, earliest first. The page ranks on who is in a token, so it
+ *  needs every one of them rather than the largest few. */
+export function buyersOf(row: DiscoverRow): Buyer[] {
+  if (row.buyers_json === null) return [];
+  const list = JSON.parse(row.buyers_json) as [string, number, number | null][];
+  return list.map(([wallet, ts, usd]) => ({ wallet, ts, usd })).sort((a, b) => a.ts - b.ts);
 }
