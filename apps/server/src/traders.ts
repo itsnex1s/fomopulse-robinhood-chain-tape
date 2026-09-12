@@ -246,8 +246,8 @@ const walletOf = new Map(wallets.map((w) => [w.address, w]));
  */
 export function ranking(sinceTs: number, window: string, limit: number): Trader[] {
   const label = pnlWindow(window);
-  const stats = new Map(tapeStats(sinceTs).map((row) => [row.wallet, row]));
-  const { books, rank } = standing();
+  const stats = new Map(measure("traders:tape", () => tapeStats(sinceTs)).map((row) => [row.wallet, row]));
+  const { books, rank } = measure("traders:books", standing);
   const place = rank.get(label);
   // Every tracked wallet is a row, traded or not: an empty `here` says a name is between
   // trades better than an absent row does.

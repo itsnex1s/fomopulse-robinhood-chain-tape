@@ -9,7 +9,7 @@ import { describe, log } from "../log.ts";
 import { sessionState } from "../privy.ts";
 import { bagList, leaderboardState, ranking } from "../traders.ts";
 import { since, WINDOW_SECONDS } from "../window.ts";
-import { budget, pressure, spend } from "./budget.ts";
+import { budget, measure, pressure, spend } from "./budget.ts";
 import { handleOf, onTape, toFill } from "./fills.ts";
 import type { Overview, Status } from "./types.ts";
 
@@ -78,7 +78,7 @@ function fillsIn(window: string): number {
 /** The window in a line, as the original's readout has it: volume, buys against sells, breadth, pace, the biggest buy. */
 const overviewFor = memo(ttlBy(COUNTED), (window): Overview => {
   const now = Math.floor(Date.now() / 1000);
-  const o = overview(since(window), now);
+  const o = measure("overview", () => overview(since(window), now));
   // Exactly what it walked: the window's own fills are both the answer and the cost.
   spend(o.fills);
   const big = o.biggest_buy;
