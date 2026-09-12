@@ -126,6 +126,8 @@ export class Tape extends DurableObject<Env> {
         // And what the pieces below a step walked, with how many times each ran: a query that
         // is cheap once and runs a thousand times looks the same from above as one that is not.
         measured: measured(),
+        // How far the books have been walked, which is where the widest windows are answered from.
+        books: this.app!.booksThrough(),
         session: this.app!.session(),
         // The object's SQLite stops at ten gigabytes, so how far off that is belongs here.
         bytes: bytesUsed(),

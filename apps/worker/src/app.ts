@@ -6,7 +6,15 @@
 import { measure, meterRows } from "../../server/src/api/budget.ts";
 import { onTape, tail, toFill } from "../../server/src/api/fills.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
-import { carryTransfers, prune as pruneStorage, setMeta, tapeOfTx } from "../../server/src/db.ts";
+import {
+  carryTransfers,
+  counts,
+  getMeta,
+  prune as pruneStorage,
+  setMeta,
+  tapeOfTx,
+  WALK_THROUGH,
+} from "../../server/src/db.ts";
 import { cursor } from "../../server/src/ingest/cursor.ts";
 import { repairFills } from "../../server/src/ingest/rebuild.ts";
 import { onLogs } from "../../server/src/ingest/receipt.ts";
@@ -203,6 +211,14 @@ export const carry = (): Promise<boolean> => Promise.resolve(carryTransfers(limi
 export const catchUpSocket = (): unknown[] => measure("ws:tail", tail);
 
 export const prices = (): Promise<void> => refreshPrices(push);
+/** The last fill the books were walked through, and the tape's own first and last, so the
+ *  shape of what the widest windows are answered from is readable off the beat. */
+export const booksThrough = (): { through: number; first_ts: number | null; trades: number } => ({
+  through: Number(getMeta(WALK_THROUGH) ?? 0),
+  first_ts: counts().first_ts,
+  trades: counts().trades,
+});
+
 /** The books, rewritten from the fills. Off the live path: the ranking reads the table a
  *  job keeps up to date, not a walk every open tab would start. */
 export const books = (): Promise<void> => {
