@@ -1,5 +1,6 @@
 import { type Address, createPublicClient, defineChain, type Hex, http, pad } from "viem";
-import chainJson from "../../../config/chains/robinhood.json" with { type: "json" };
+import arcJson from "../../../config/chains/arc.json" with { type: "json" };
+import robinhoodJson from "../../../config/chains/robinhood.json" with { type: "json" };
 import fomoJson from "../../../config/fomo.json" with { type: "json" };
 import walletsJson from "../../../config/wallets.json" with { type: "json" };
 
@@ -20,17 +21,38 @@ export interface Wallet {
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
+/** What a file under config/chains has to say. `rpcFallbackHttp` and `explorer` may be the
+ *  empty string; see validateChain for what empty means and what it costs. */
+export interface ChainFile {
+  id: number;
+  name: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  rpcHttp: string;
+  rpcWs: string;
+  rpcFallbackHttp: string;
+  explorer: string;
+  multicall3: string;
+  dexscreenerSlug: string;
+  quoteTokens: Record<string, { symbol: string; decimals: number; usd?: number }>;
+}
+
 /** A config mistake should stop the process on the first line, not surface as an empty tape an hour later. */
 export function invalid(message: string): never {
   throw new Error(`config: ${message}`);
 }
 
-function validateChain(chain: typeof chainJson): void {
+export function validateChain(chain: ChainFile): void {
   if (!Number.isInteger(chain.id) || chain.id <= 0) invalid(`chain id ${chain.id} is not a positive integer`);
   if (!/^https?:\/\//.test(chain.rpcHttp)) invalid(`rpcHttp ${chain.rpcHttp} is not an http(s) URL`);
   if (!/^wss?:\/\//.test(chain.rpcWs)) invalid(`rpcWs ${chain.rpcWs} is not a ws(s) URL`);
-  if (!/^https?:\/\//.test(chain.rpcFallbackHttp))
+  // Empty is allowed and means there is only one endpoint: a chain a week old has one
+  // provider, and refusing to start is worse than reading wide logs off the same node.
+  if (chain.rpcFallbackHttp !== "" && !/^https?:\/\//.test(chain.rpcFallbackHttp))
     invalid(`rpcFallbackHttp ${chain.rpcFallbackHttp} is not an http(s) URL`);
+  // Same for the explorer: empty means there is no public one, and every link built from
+  // it already resolves to undefined rather than to a path on this origin.
+  if (chain.explorer !== "" && !/^https?:\/\//.test(chain.explorer))
+    invalid(`explorer ${chain.explorer} is not an http(s) URL`);
   if (!ADDRESS.test(chain.multicall3)) invalid(`multicall3 ${chain.multicall3} is not an address`);
   if (!chain.dexscreenerSlug) invalid("dexscreenerSlug is missing");
   for (const [address, token] of Object.entries(chain.quoteTokens)) {
@@ -66,7 +88,26 @@ function validateFomo(fomo: typeof fomoJson): void {
   if (!fomo.privy.appId || !fomo.privy.clientId) invalid("fomo privy appId and clientId are both required");
 }
 
-validateChain(chainJson);
+/**
+ * Every chain this tape knows how to follow, by the name of its file. One of them is the
+ * chain a given process follows, named by CHAIN; the rest are here so a typo or a truncated
+ * file fails the typecheck and the suite rather than the deploy that switches over.
+ */
+export const CHAINS = { robinhood: robinhoodJson, arc: arcJson } as const;
+export type ChainName = keyof typeof CHAINS;
+
+/** Which of them this process follows. Read once, at module scope, because the clients, the
+ *  quote tokens and the stock registry are all built from it before anything is served. */
+function chosen(): ChainName {
+  const asked = (typeof process === "undefined" ? "" : (process.env.CHAIN ?? "")).trim();
+  if (asked === "") return "robinhood";
+  if (!(asked in CHAINS)) invalid(`CHAIN ${asked} is not one of ${Object.keys(CHAINS).join(", ")}`);
+  return asked as ChainName;
+}
+
+const chainJson = CHAINS[chosen()];
+
+for (const file of Object.values(CHAINS)) validateChain(file);
 validateFomo(fomoJson);
 validateWallets(walletsJson as Wallet[]);
 
@@ -78,9 +119,13 @@ export const chain = defineChain({
   name: chainJson.name,
   nativeCurrency: chainJson.nativeCurrency,
   rpcUrls: { default: { http: [chainJson.rpcHttp] } },
-  blockExplorers: { default: { name: "Blockscout", url: chainJson.explorer } },
+  ...(chainJson.explorer === "" ? {} : { blockExplorers: { default: { name: "Explorer", url: chainJson.explorer } } }),
   contracts: { multicall3: { address: chainJson.multicall3 as Address } },
 });
+
+/** The endpoint wide `eth_getLogs` goes to. A chain with no second provider answers it from
+ *  the only one it has, which is slower under a rate limit but is not a reason not to run. */
+const wideUrl = chainJson.rpcFallbackHttp || chainJson.rpcHttp;
 
 export const QUOTE_TOKENS = new Map<Address, QuoteToken>(
   Object.entries(chainJson.quoteTokens).map(([a, q]) => [a.toLowerCase() as Address, q as QuoteToken]),
@@ -162,7 +207,7 @@ export let logRpc = clientFor(env.httpUrl, false);
 /** The endpoint for wide-range `eth_getLogs`, which the keyed one refuses outright; used whether or not a key
  *  is configured, and the chain's own endpoint is not a substitute — it caps the log count as well as the rate.
  *  Unbatched: a limiter answers a whole batch with one object and no `id`, which viem reads by position. */
-export let wideRpc = clientFor(chainJson.rpcFallbackHttp, false);
+export let wideRpc = clientFor(wideUrl, false);
 
 /** Takes the settings from somewhere other than the process; the exported bindings are live, so a module
  *  that imported `rpc` a moment ago sees the client this builds. */
@@ -170,5 +215,5 @@ export function configure(secrets: Secrets): void {
   env = settings(secrets);
   rpc = clientFor(env.httpUrl);
   logRpc = clientFor(env.httpUrl, false);
-  wideRpc = clientFor(chainJson.rpcFallbackHttp, false);
+  wideRpc = clientFor(wideUrl, false);
 }

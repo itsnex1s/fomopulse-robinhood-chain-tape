@@ -35,7 +35,9 @@ Three packages and a scripts folder. Dependencies run one way:
     apps/server  →  config/*.json
 
 `apps/server` never imports from `apps/worker` or `apps/web`. `config/*.json` is data, imported
-directly with JSON import attributes and validated at `config.ts` and `limits.ts`.
+directly with JSON import attributes and validated at `config.ts` and `limits.ts`. One file under
+`config/chains` is one chain this tape can follow; `CHAIN` picks it and the rest are carried so a
+broken one fails the suite rather than the deploy that switches to it.
 
 Runtime dependencies are four: `viem` and `hono` on the server, `react`, `react-dom`,
 `@tanstack/react-query` and `zustand` on the web. `bun:sqlite` is the database on Bun; the Worker
@@ -122,10 +124,13 @@ exports. A module with no exports listed is an entry point that runs on import.
                         what a month may spend. Served at /api/limits. The
                         constants that decide what a fill IS are not here — they live beside the
                         rule they belong to.
-    1  config.ts        chain chainConfig configure wallets fomoConfig QUOTE_TOKENS WALLET_LIST
-                        WALLET_SET WALLET_TOPICS Wallet QuoteToken Secrets
+    1  config.ts        chain chainConfig CHAINS ChainName ChainFile validateChain configure wallets
+                        fomoConfig QUOTE_TOKENS WALLET_LIST WALLET_SET WALLET_TOPICS Wallet
+                        QuoteToken Secrets
                         Validated chain, fomo and wallet config; env settings; the three RPC clients.
-                        The most depended-on module in the repo.
+                        Which chain is followed is CHAIN, read once at module scope and defaulting
+                        to robinhood; every file under config/chains is validated whether or not it
+                        is the one being followed. The most depended-on module in the repo.
     2  db.ts            (barrel)
                         Re-exports the whole storage surface. Import storage from here, not from db/*.
     3  log.ts           log describe
@@ -368,6 +373,11 @@ exports. A module with no exports listed is an entry point that runs on import.
 
 Addresses and transaction hashes are stored and compared lowercase. `config.ts` refuses to start on
 a wallet listed twice.
+
+A chain file may leave `rpcFallbackHttp` and `explorer` empty and nothing else. Empty means there is
+none: wide `eth_getLogs` goes to the one endpoint there is, and every link built from the explorer
+resolves to undefined rather than to a path on this origin. A wallet list belongs to one chain — the
+addresses that trade are delegated ones, so a second chain needs its own `scripts/roster.ts` run.
 
 Amounts from the chain are read as wei-scale integers and only divided by the token's decimals at
 the edge of the system. A fill's `usd` is null when nothing could price it; `priced` says which tier

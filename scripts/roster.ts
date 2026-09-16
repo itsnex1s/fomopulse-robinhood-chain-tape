@@ -19,7 +19,6 @@ const TRANSFER = parseAbiItem("event Transfer(address indexed from, address inde
 const LEADERBOARD_WINDOWS = ["", "/24h", "/7d", "/30d"];
 /** How far around the estimated block to look; a wider range is refused by the public RPC. */
 const SEARCH_RADIUS = 12_000n;
-const ROBINHOOD = 4663;
 /** Routing contracts that hold a token mid-route and can look terminal; never a trader. */
 const INFRASTRUCTURE = new Set<string>([
   "0x8366a39cc670b4001a1121b8f6a443a643e40951", // Uniswap v4 PoolManager
@@ -103,7 +102,7 @@ async function collectTraders(): Promise<Trader[]> {
       swaps: { outNetworkId: number; outTokenAddress: string; outHumanAmount: number; createdAt: string }[];
     }>(`/v2/users/${id}/swaps?limit=20`);
     const swaps = page.swaps
-      .filter((s) => s.outNetworkId === ROBINHOOD && s.outHumanAmount > 0)
+      .filter((s) => s.outNetworkId === chainConfig.id && s.outHumanAmount > 0)
       .slice(0, 3)
       .map((s) => ({ token: s.outTokenAddress.toLowerCase() as Address, amount: s.outHumanAmount, at: s.createdAt }));
     traders.push({ handle: u.userHandle, id, displayName: u.displayName, followers: u.followers, swaps });
