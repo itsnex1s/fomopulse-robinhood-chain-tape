@@ -62,9 +62,14 @@ export interface Limits {
     limitSteps: number[];
     /** Times one address may reach the object in a minute; the platform enforces it per colo. */
     objectRequestsPerMinute: number;
+    /** Addresses the site does not answer at all, as CIDR or a bare address. */
+    blocked: string[];
   };
   budget: { rowsPerMonth: number; maxHold: number; warmupSeconds: number };
 }
+
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+const IPV6 = /^[0-9a-fA-F:]+$/;
 
 /** A mistake here should stop the process on the first line, not surface as a stalled job. */
 function invalid(message: string): never {
@@ -117,6 +122,15 @@ export function validateLimits(given: typeof limitsJson): Limits {
   if (given.cache.cursorSeconds <= 0) invalid("cache.cursorSeconds is not a positive number of seconds");
   if (!Number.isInteger(given.cache.objectRequestsPerMinute) || given.cache.objectRequestsPerMinute <= 0)
     invalid("cache.objectRequestsPerMinute is not a whole number of requests");
+  // A malformed entry here is the dangerous kind of mistake: it reads as a rule and matches
+  // nothing, so the address it was meant to stop goes on being answered and nobody is told.
+  for (const [i, entry] of (given.cache.blocked ?? []).entries()) {
+    const [address, bits] = entry.split("/");
+    if (!IPV4.test(address ?? "") && !IPV6.test(address ?? ""))
+      invalid(`cache.blocked[${i}] is ${entry}, which is not an address`);
+    if (bits !== undefined && !/^\d{1,3}$/.test(bits))
+      invalid(`cache.blocked[${i}] is ${entry}, whose prefix is not a number of bits`);
+  }
   if (given.pace.booksMaxSeconds < given.pace.booksMinSeconds)
     invalid("pace.booksMaxSeconds is below pace.booksMinSeconds");
   if (given.pace.passBudgetSeconds >= given.pace.passSeconds)
@@ -139,6 +153,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
       cursorSeconds: given.cache.cursorSeconds,
       limitSteps: steps,
       objectRequestsPerMinute: given.cache.objectRequestsPerMinute,
+      blocked: given.cache.blocked ?? [],
     },
     budget: given.budget,
   };

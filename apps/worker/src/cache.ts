@@ -64,6 +64,45 @@ export async function throttled(limiter: RateLimiter | undefined, request: Reque
 export type Verdict = "off" | "ok" | "over";
 
 /**
+ * The addresses the site does not answer, from config/limits.json. Parsed once: a prefix is
+ * kept as the bytes it fixes, so a match is a comparison and not a string the request has to
+ * be formatted into. IPv6 is compared as text, which only matches a whole address — the list
+ * has never needed a v6 range and guessing at one silently matching too much is worse.
+ */
+const RANGES = limits.cache.blocked.map((entry) => {
+  const [address = "", bits] = entry.split("/");
+  const octets = address.split(".").map(Number);
+  const v4 = octets.length === 4 && octets.every((n) => Number.isInteger(n) && n >= 0 && n <= 255);
+  if (!v4) return { text: address.toLowerCase() };
+  const width = bits === undefined ? 32 : Math.min(32, Number(bits));
+  const value = octets.reduce((acc, n) => acc * 256 + n, 0);
+  const mask = width === 0 ? 0 : (0xffff_ffff << (32 - width)) >>> 0;
+  return { value: (value & mask) >>> 0, mask };
+});
+
+/** Whether this address is one of them. Nothing it sends is read first, so a blocked client
+ *  cannot spend anything at all: not the object, not the cache, not a line of routing. */
+export function barred(request: Request): boolean {
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip === null || RANGES.length === 0) return false;
+  const octets = ip.split(".").map(Number);
+  const value =
+    octets.length === 4 && octets.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+      ? octets.reduce((acc, n) => acc * 256 + n, 0)
+      : undefined;
+  const text = ip.toLowerCase();
+  return RANGES.some((range) =>
+    range.mask === undefined ? range.text === text : value !== undefined && (value & range.mask) >>> 0 === range.value,
+  );
+}
+
+export const barredResponse = (): Response =>
+  new Response(JSON.stringify({ error: "blocked" }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
+/**
  * Whether the caller says what it is. A browser always does, and so does every library with a
  * default; a request that arrives nameless on the way to the object is a scraper that turned
  * its own name off. The assets are served to anyone — this is only the door to the object.

@@ -9,7 +9,7 @@ import { dress, SOURCE, TRADER_FILLS, TRADER_WINDOW } from "../../server/src/api
 import type { Profile } from "../../server/src/api/types.ts";
 import { isViewPath, traderOf, trimmed } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
-import { canonical, named, nameless, throttled, tooMany } from "./cache.ts";
+import { barred, barredResponse, canonical, named, nameless, throttled, tooMany } from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -111,6 +111,11 @@ async function profile(handle: string, request: Request, env: Env, ctx: Executio
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Before the page, before the assets, before routing: an address on the list is answered
+    // with nothing at all. A client that has stopped behaving like a reader is not one, and
+    // a page it never loads is a script it never runs. See cache.blocked in config/limits.json.
+    if (barred(request)) return barredResponse();
 
     // Everything past this line can reach the object, and the object is what the bill is made
     // of. The page and its assets are served to anyone at all; see `named`.
