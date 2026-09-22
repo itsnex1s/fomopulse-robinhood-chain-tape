@@ -88,16 +88,26 @@ test("the page everybody asks for is not the one the cursors push out", async ()
   // The memo holds sixty-four answers. A cursor is part of the key and there is one per
   // reader paging back, so the cold keys always outnumber the hot one; what decides whether
   // the tape is read once a minute or eighteen times is which of them is given up.
-  const hot = "/api/tape?window=all&limit=301";
-  await api.request(hot);
-  const cold = Array.from({ length: 70 }, (_, i) => `/api/tape?window=all&limit=${400 + i}`);
+  //
+  // Counted on the hot key alone rather than over the whole loop, so that a page another
+  // test file happened to ask for first cannot change the answer.
+  const at = (limit: number) => `/api/tape?window=30d&stocks=false&dust=true&limit=${limit}`;
+  const hot = at(499);
 
-  const read = await runs("tape:page", async () => {
-    for (const page of cold) {
-      await api.request(page);
-      await api.request(hot);
-    }
-  });
-  // Each cold page once, and the hot one never again: it was wanted most recently every time.
-  expect(read).toBe(cold.length);
+  resetBudget(0);
+  let rows = 0;
+  meterRows(() => ++rows);
+  await api.request(hot);
+
+  let reread = 0;
+  for (let i = 0; i < 70; i++) {
+    await api.request(at(500 + i));
+    const before = measured()["tape:page"]?.runs ?? 0;
+    await api.request(hot);
+    if ((measured()["tape:page"]?.runs ?? 0) > before) reread++;
+  }
+  resetBudget();
+
+  // Read once, at the top. It was wanted most recently every time, so nothing pushed it out.
+  expect(reread).toBe(0);
 });
