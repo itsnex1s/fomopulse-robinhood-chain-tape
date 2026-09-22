@@ -98,7 +98,9 @@ is the one thing a cache cannot bound: every value of a cursor is a different, v
 **Tables.** `receipts` holds what the chain said, its ERC-20 transfers packed into one value on
 the row rather than a row apiece — nothing queries them, and a row apiece was seven eighths of
 everything this tape writes; `fills` is the tape; `tokens`,
-`addresses` and `prices` are lookups; `trader_stats` is the books, walked from the fills, and
+`addresses` and `prices` are lookups; `trader_stats` is the books, walked from the fills —
+carrying every window's figures as of the walk, which is why a ranking reads two slices minutes
+wide instead of grouping a week of fills, and why `BOOKS_SHAPE` says whether it may — and
 `bag_hours` the hourly snapshot the bag deltas are read against; `traders` holds the cards fomo
 shows; `meta` is the key-value store the resume cursor and the fomo session live in.
 There are no migrations: `db/schema.ts` is the whole story, and a database that does not match it is
@@ -145,7 +147,7 @@ exports. A module with no exports listed is an entry point that runs on import.
                         Read side of the fomo API: the leaderboard cards, and nothing numeric.
     8  privy.ts         bearer renewed hasSession sessionState
                         The fomo bearer session: load, expiry, deduplicated renewal, persistence.
-    9  traders.ts       maintain refresh reload ranking bookOf ranked traderOf bagList
+    9  traders.ts       maintain refresh reload ranking walked bookOf ranked traderOf bagList
                         startTraders traderInterval retryInterval leaderboardState quoteBags
                         The leaderboard pass, the standing every screen ranks by, and the two
                         lists — who moved the tape, and what those wallets are still long.
@@ -155,6 +157,10 @@ exports. A module with no exports listed is an entry point that runs on import.
     10 pnl.ts           rebuildStats startBooks
                         The books: one sequential walk over every fill, average cost per wallet
                         and token, rewriting trader_stats. Read this before touching a p/l.
+                        The walk is also where every per-window figure the ranking shows comes
+                        from, the tape's own count and volume among them, so a window costs a
+                        comparison in a pass that was happening anyway rather than a pass of
+                        its own: see `walked` in traders.ts for the two edges it leaves.
     11 live.ts          follow resume poll Emit
                         Bun live mode: subscribe, reconnect with backoff, the sweep timer.
     12 index.ts         (entry)
@@ -230,6 +236,7 @@ exports. A module with no exports listed is an entry point that runs on import.
                         The pools are the small side of every join and the query says so:
                         MATERIALIZED and CROSS JOIN, or the planner walks the fills instead.
     30 stats.ts         allStats saveStats statsVersion fillsAfter lastPriceOf STAT_WINDOWS
+                        ROLLING BOOKS_SHAPE BOOKS_SHAPE_KEY
                         StatRow StatFill StatWindow
                         The books table: paged fill reads for the walk, and the version a reader
                         holding a copy checks against.

@@ -29,11 +29,23 @@ try {
 }
 
 /** The books of a database that predates the tape's own volume have no column to put it in;
- *  they are rewritten whole by the next walk, so the column only has to exist. */
-try {
-  db.exec("ALTER TABLE trader_stats ADD COLUMN tape_volume REAL NOT NULL DEFAULT 0");
-} catch {
-  // already there, which is the ordinary case
+ *  they are rewritten whole by the next walk, so the column only has to exist. The same goes
+ *  for the per-window figures added beside it: until that walk they read zero, which is a
+ *  ranking one walk behind and not a wrong one. */
+for (const column of [
+  "tape_volume REAL NOT NULL DEFAULT 0",
+  "tape_fills_24h INTEGER NOT NULL DEFAULT 0",
+  "tape_fills_7d INTEGER NOT NULL DEFAULT 0",
+  "tape_fills_30d INTEGER NOT NULL DEFAULT 0",
+  "tape_volume_24h REAL NOT NULL DEFAULT 0",
+  "tape_volume_7d REAL NOT NULL DEFAULT 0",
+  "tape_volume_30d REAL NOT NULL DEFAULT 0",
+]) {
+  try {
+    db.exec(`ALTER TABLE trader_stats ADD COLUMN ${column}`);
+  } catch {
+    // already there, which is the ordinary case
+  }
 }
 
 /** A slice of the one-off carry, small enough that opening the database stays an open rather

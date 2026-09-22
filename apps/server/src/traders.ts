@@ -4,7 +4,8 @@ import { chainConfig, wallets } from "./config.ts";
 import {
   allStats,
   allTraders,
-  coversTape,
+  BOOKS_SHAPE,
+  BOOKS_SHAPE_KEY,
   getMeta,
   STAT_WINDOWS,
   type StatRow,
@@ -17,6 +18,7 @@ import {
   tapeHolders,
   tapeStats,
   tapeStatsAfter,
+  tapeStatsBetween,
   WALK_THROUGH,
 } from "./db.ts";
 import { FomoError, leaderboard, WINDOWS } from "./fomo.ts";
@@ -26,7 +28,7 @@ import { nameBags, quoteBags } from "./prices/bags.ts";
 import { hasSession } from "./privy.ts";
 import { sleep } from "./sleep.ts";
 import { isStock } from "./stocks.ts";
-import { pnlWindow } from "./window.ts";
+import { pnlWindow, WINDOW_SECONDS } from "./window.ts";
 
 /** Re-exported for the worker, which alarms quotes and trader maintenance separately. */
 export { quoteBags };
@@ -255,19 +257,53 @@ const walletOf = new Map(wallets.map((w) => [w.address, w]));
  * everything: measured against the object, a couple of thousand rows against a hundred and
  * twenty-six thousand.
  */
-function walked(sinceTs: number, books: Map<string, StatRow>): ReturnType<typeof tapeStats> {
+/**
+ * What the tape's own aggregate says about each wallet over the window — without reading the
+ * window. The books already hold it as of the walk they were written by; the difference is
+ * the two edges, and both are minutes wide however wide the window is: the fills that have
+ * landed since, and the fills the window has shed since. Grouping a week of fills to get the
+ * same answer is the most expensive read this tape makes.
+ *
+ * A window the books keep no figure for — the hour — is still read off the tape, because an
+ * hour of it is a cheap read and a column for it would be stale before it was written.
+ */
+export function walked(sinceTs: number, window: string, books: Map<string, StatRow>): ReturnType<typeof tapeStats> {
   const through = Number(getMeta(WALK_THROUGH) ?? 0);
-  if (through === 0 || !coversTape(sinceTs)) return tapeStats(sinceTs);
+  const label = STAT_WINDOWS.find((w) => w === window);
+  // Books written before these columns existed carry the default and not the figure.
+  const written = Number(getMeta(BOOKS_SHAPE_KEY) ?? 0) >= BOOKS_SHAPE;
+  if (through === 0 || label === undefined || books.size === 0 || !written) return tapeStats(sinceTs);
+
   const after = new Map(tapeStatsAfter(through).map((row) => [row.wallet, row]));
-  const rows = [...books.values()].map((book) => {
-    const since = after.get(book.wallet);
-    return {
-      wallet: book.wallet,
-      fills: book.buys + book.sells + (since?.fills ?? 0),
-      volume: book.tape_volume + (since?.volume ?? 0),
-      last_ts: Math.max(book.last_ts ?? 0, since?.last_ts ?? 0),
-    };
-  });
+  // Where the books' own window started, which is later than the reader's by however long
+  // ago the walk was. `all` starts at the beginning and sheds nothing.
+  const at = books.values().next().value!.computed_at;
+  const shed = new Map(
+    (label === "all" ? [] : tapeStatsBetween(at - WINDOW_SECONDS[label], sinceTs, through)).map((row) => [
+      row.wallet,
+      row,
+    ]),
+  );
+  const base = (book: StatRow) =>
+    label === "all"
+      ? { fills: book.buys + book.sells, volume: book.tape_volume }
+      : { fills: book[`tape_fills_${label}`], volume: book[`tape_volume_${label}`] };
+
+  const rows = [...books.values()]
+    .map((book) => {
+      const since = after.get(book.wallet);
+      const gone = shed.get(book.wallet);
+      const was = base(book);
+      return {
+        wallet: book.wallet,
+        fills: was.fills - (gone?.fills ?? 0) + (since?.fills ?? 0),
+        volume: was.volume - (gone?.volume ?? 0) + (since?.volume ?? 0),
+        last_ts: Math.max(book.last_ts ?? 0, since?.last_ts ?? 0),
+      };
+    })
+    // A wallet whose every fill has fallen out of the window is a wallet between trades, and
+    // the ranking gives it a row of its own either way.
+    .filter((row) => row.fills > 0);
   // A wallet whose first trade landed after the walk has no book row to add to yet.
   for (const [wallet, row] of after) if (!books.has(wallet)) rows.push(row);
   return rows;
@@ -276,7 +312,7 @@ function walked(sinceTs: number, books: Map<string, StatRow>): ReturnType<typeof
 export function ranking(sinceTs: number, window: string, limit: number): Trader[] {
   const label = pnlWindow(window);
   const { books, rank } = measure("traders:books", standing);
-  const stats = new Map(measure("traders:tape", () => walked(sinceTs, books)).map((row) => [row.wallet, row]));
+  const stats = new Map(measure("traders:tape", () => walked(sinceTs, window, books)).map((row) => [row.wallet, row]));
   const place = rank.get(label);
   // Every tracked wallet is a row, traded or not: an empty `here` says a name is between
   // trades better than an absent row does.

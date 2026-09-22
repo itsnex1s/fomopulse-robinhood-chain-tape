@@ -1,4 +1,6 @@
 import {
+  BOOKS_SHAPE,
+  BOOKS_SHAPE_KEY,
   fillsAfter,
   lastPriceOf,
   STAT_WINDOWS,
@@ -33,6 +35,10 @@ interface Stat {
   realized: PerWindow;
   trips: PerWindow;
   wins: PerWindow;
+  /** Every fill and every priced dollar of it, per window: the tape's own aggregate, which
+   *  the ranking would otherwise group the window's fills to get. */
+  tapeFills: PerWindow;
+  tapeVol: PerWindow;
   free: number;
   buys: number;
   sells: number;
@@ -46,6 +52,8 @@ const blank = (): Stat => ({
   realized: zero(),
   trips: zero(),
   wins: zero(),
+  tapeFills: zero(),
+  tapeVol: zero(),
   free: 0,
   buys: 0,
   sells: 0,
@@ -66,6 +74,13 @@ function apply(fill: StatFill, stat: Stat, book: Book, windows: [StatWindow, num
   // The tape counts a priced handout as volume and the books do not; both numbers are shown,
   // so both are kept. See `volume` below for the one the p/l is built on.
   if (fill.usd !== null) stat.tapeVolume += fill.usd;
+  // And the same two, per window. The walk is already here and in order, so a window costs
+  // a comparison per fill rather than a pass of its own.
+  for (const [w, from] of windows) {
+    if (fill.ts < from) continue;
+    stat.tapeFills[w]++;
+    if (fill.usd !== null) stat.tapeVol[w] += fill.usd;
+  }
 
   if (fill.side === "buy") {
     stat.buys++;
@@ -205,6 +220,12 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
       sells: s.sells,
       volume: s.volume,
       tape_volume: s.tapeVolume,
+      tape_fills_24h: s.tapeFills["24h"],
+      tape_fills_7d: s.tapeFills["7d"],
+      tape_fills_30d: s.tapeFills["30d"],
+      tape_volume_24h: s.tapeVol["24h"],
+      tape_volume_7d: s.tapeVol["7d"],
+      tape_volume_30d: s.tapeVol["30d"],
       tokens: tokens.get(wallet) ?? 0,
       first_ts: s.first || null,
       last_ts: s.last || null,
@@ -220,6 +241,8 @@ export function rebuildStats(now = Math.floor(Date.now() / 1000)): { wallets: nu
   // walking the tape again. By row rather than by time: a sweep can store a fill older than
   // the newest one, and by time that fill would fall between the two and be counted by neither.
   setMeta(WALK_THROUGH, through);
+  // Written last, so a walk that was cut short never claims the figures it did not finish.
+  setMeta(BOOKS_SHAPE_KEY, String(BOOKS_SHAPE));
   log.info(`books: ${rows.length} wallets over ${fills.toLocaleString()} fills in ${ms}ms`);
   return { wallets: rows.length, fills, ms };
 }

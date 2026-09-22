@@ -128,6 +128,14 @@ export const SCHEMA = `
     /** What the tape's own aggregate would report for this wallet over the whole tape: every
      *  fill with a price, the dusted ones included, which the volume above leaves out. */
     tape_volume REAL NOT NULL DEFAULT 0,
+    /** The same two figures over each rolling window, as of computed_at. They are here so
+     *  the ranking can read a window off the books instead of grouping the window's fills:
+     *  what the reader asks for is these, less what the window has shed since the walk, plus
+     *  what has landed since — two slices minutes wide however wide the window is. */
+    tape_fills_24h INTEGER NOT NULL DEFAULT 0, tape_fills_7d INTEGER NOT NULL DEFAULT 0,
+    tape_fills_30d INTEGER NOT NULL DEFAULT 0,
+    tape_volume_24h REAL NOT NULL DEFAULT 0, tape_volume_7d REAL NOT NULL DEFAULT 0,
+    tape_volume_30d REAL NOT NULL DEFAULT 0,
     first_ts INTEGER, last_ts INTEGER, computed_at INTEGER NOT NULL
   );
   /** Small named values that survive a restart: the resume cursor, the feed's source. */

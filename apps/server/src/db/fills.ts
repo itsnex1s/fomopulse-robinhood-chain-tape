@@ -48,6 +48,19 @@ const stmt = {
     `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
        FROM fills INDEXED BY fills_ts WHERE ts >= ? GROUP BY wallet`,
   ),
+  /**
+   * The same aggregate over a slice with both ends, and only over rows the books did see:
+   * what a window has shed since it was walked. Forced down fills_ts because that is the one
+   * index that can seek to the start of a slice, and bounded by the row the walk reached so
+   * a fill a sweep stored late is counted by `perWalletAfter` and not by both.
+   */
+  perWalletBetween: db.query<
+    { wallet: string; fills: number; volume: number; last_ts: number },
+    [number, number, number]
+  >(
+    `SELECT wallet, COUNT(*) AS fills, COALESCE(SUM(usd), 0) AS volume, MAX(ts) AS last_ts
+       FROM fills INDEXED BY fills_ts WHERE ts >= ?1 AND ts < ?2 AND rowid <= ?3 GROUP BY wallet`,
+  ),
   /** The same aggregate over the fills stored since a given row: what the books have not seen.
    *  NOT INDEXED, or the planner takes the index its GROUP BY already wants and walks every
    *  fill down it to find the handful past the row — which is the pass this exists to avoid. */
@@ -147,12 +160,9 @@ export const tapeStats = (sinceTs: number) =>
   (slice(sinceTs) ? stmt.perWalletSeeked : stmt.perWalletGrouped).all(sinceTs);
 /** What the tape has recorded since the row the books were walked through. */
 export const tapeStatsAfter = (id: number) => stmt.perWalletAfter.all(id);
-/** Whether a window reaches back past the first fill the tape still holds, which makes its
- *  answer the whole tape's — and the whole tape is what the books were walked over. */
-export function coversTape(sinceTs: number): boolean {
-  const { first_ts } = counts();
-  return first_ts !== null && sinceTs <= first_ts;
-}
+/** What a window held when the books were walked and does not hold now. */
+export const tapeStatsBetween = (fromTs: number, toTs: number, through: number) =>
+  fromTs >= toTs ? [] : stmt.perWalletBetween.all(fromTs, toTs, through);
 export function counts(): { trades: number; first_ts: number | null; last_ts: number | null } {
   if (held < 0) held = stmt.total.get()!.n;
   return { trades: held, ...stmt.edges.get()! };

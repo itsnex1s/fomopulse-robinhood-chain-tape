@@ -8,6 +8,20 @@ export const WALK_THROUGH = "books:through";
 export const STAT_WINDOWS = ["24h", "7d", "30d", "all"] as const;
 export type StatWindow = (typeof STAT_WINDOWS)[number];
 
+/**
+ * The shape of the figures a walk writes. Bumped whenever the walk starts writing one the
+ * ranking reads off the row rather than off the tape: ALTER TABLE gives the column a default
+ * the moment the process starts, and the number only with the next walk, so between the two
+ * the ranking has to know not to believe it. Same idea as ingest/rebuild.ts RULES.
+ */
+export const BOOKS_SHAPE = 1;
+export const BOOKS_SHAPE_KEY = "books:shape";
+
+/** The windows the books keep a figure for that moves: `all` needs none, since the columns
+ *  it would hold are the all-time ones the table already has. */
+export const ROLLING = ["24h", "7d", "30d"] as const;
+export type Rolling = (typeof ROLLING)[number];
+
 const COLUMNS = [
   "wallet",
   ...STAT_WINDOWS.flatMap((w) => [`realized_${w}`, `trips_${w}`, `wins_${w}`]),
@@ -19,6 +33,7 @@ const COLUMNS = [
   "sells",
   "volume",
   "tape_volume",
+  ...ROLLING.flatMap((w) => [`tape_fills_${w}`, `tape_volume_${w}`]),
   "tokens",
   "first_ts",
   "last_ts",
@@ -82,6 +97,13 @@ export interface StatRow {
   volume: number;
   /** Every priced fill, dust included: what the tape's own aggregate reports. */
   tape_volume: number;
+  /** The same, over each rolling window as of `computed_at`. See the schema. */
+  tape_fills_24h: number;
+  tape_fills_7d: number;
+  tape_fills_30d: number;
+  tape_volume_24h: number;
+  tape_volume_7d: number;
+  tape_volume_30d: number;
   tokens: number;
   first_ts: number | null;
   last_ts: number | null;
