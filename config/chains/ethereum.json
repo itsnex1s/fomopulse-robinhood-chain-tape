@@ -1,9 +1,9 @@
 {
-  "$comment": "Ethereum mainnet. The endpoints are chosen for what this tape asks of them, which is eth_getLogs by topic with no contract address, and most public nodes refuse exactly that: PublicNode's HTTP wants an address, dRPC's free plan caps the range, 1RPC allows fifty blocks. Tenderly's public gateway and Flashbots both answer a two-thousand-block scan of the whole roster, so one is the endpoint and the other the fallback; PublicNode's socket takes the same topic-only subscription and is kept for that. Twelve-second blocks, so every block count in config/limits.json is about a hundred times longer here in wall-clock terms than on Robinhood Chain.",
+  "$comment": "Ethereum mainnet. PublicNode's HTTP takes the calls a transaction costs — batched receipts, code and multicalls, sixty in a burst without a refusal — but not eth_getLogs by topic with no contract address, which it wants an address for; the scan moves to the fallback on the first refusal, the way it moves off a keyed provider, and Flashbots takes that scan at two thousand blocks with the whole roster in the filter. dRPC's free plan caps the range, 1RPC allows fifty blocks, and Tenderly's public gateway takes the scan but rate-limits the burst a transaction's lookups arrive in, so none of them is here. PublicNode's socket takes the topic-only subscription. Twelve-second blocks, so every block count in config/limits.json is about a hundred times longer here in wall-clock terms than on Robinhood Chain.",
   "id": 1,
   "name": "Ethereum",
   "nativeCurrency": { "name": "Ether", "symbol": "ETH", "decimals": 18 },
-  "rpcHttp": "https://gateway.tenderly.co/public/mainnet",
+  "rpcHttp": "https://ethereum-rpc.publicnode.com",
   "rpcWs": "wss://ethereum-rpc.publicnode.com",
   "rpcFallbackHttp": "https://rpc.flashbots.net",
   "explorer": "https://etherscan.io",
