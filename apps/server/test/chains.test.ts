@@ -55,6 +55,24 @@ test("Arc carries what was read off Arc", () => {
   expect(quote).toEqual({ symbol: "USDC", decimals: 6, usd: 1 });
 });
 
+test("Ethereum carries what was read off Ethereum", () => {
+  const ethereum = CHAINS.ethereum;
+  expect(ethereum.id).toBe(1);
+  expect(ethereum.multicall3.toLowerCase()).toBe("0xca11bde05977b3631167028862be2a173976ca11");
+  expect(ethereum.rpcWs.startsWith("wss://")).toBe(true);
+  // The scan asks for logs by topic with no contract address, which the endpoint and the
+  // fallback both have to take; a second one is what makes a wide sweep survive a refusal.
+  expect(ethereum.rpcFallbackHttp).not.toBe("");
+  expect(ethereum.rpcFallbackHttp).not.toBe(ethereum.rpcHttp);
+  expect(ethereum.explorer).toBe("https://etherscan.io");
+  // Three stablecoins at a dollar and one floating token, WETH, priced through the feed.
+  const quotes = Object.entries<ChainFile["quoteTokens"][string]>(ethereum.quoteTokens);
+  expect(quotes.map(([, q]) => q.symbol).sort()).toEqual(["DAI", "USDC", "USDT", "WETH"]);
+  expect(quotes.filter(([, q]) => q.usd === undefined).map(([, q]) => q.symbol)).toEqual(["WETH"]);
+  for (const [address] of quotes) expect(address).toBe(address.toLowerCase());
+  expect(ethereum.quoteTokens["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"]).toEqual({ symbol: "WETH", decimals: 18 });
+});
+
 test("a chain with one provider and no explorer is a chain, not a config mistake", () => {
   expect(() => validateChain({ ...sound, rpcFallbackHttp: "", explorer: "" })).not.toThrow();
   // Present but nonsense is still refused: empty says there is none, a typo says nothing.

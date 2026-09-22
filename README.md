@@ -27,6 +27,7 @@ own endpoint, or `bun run ingest --poll 12` to re-read the chain every 12 second
 
 | in `.env` | what it is |
 |---|---|
+| `CHAIN` | which file under `config/chains` to follow: `robinhood` (the default), `ethereum` or `arc` |
 | `RPC_WS_URL` | websocket endpoint for live mode; defaults to PublicNode's public socket |
 | `RPC_HTTP_URL` | endpoint for catch-up and receipts; defaults to the chain's public RPC, with wide log scans falling back to a second public endpoint when the first refuses the range |
 | `FOMO_ACCESS_TOKEN` | a fomo session, only for the handles and avatars; every number on every screen is measured here, so the tape runs without it |
