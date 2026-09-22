@@ -141,7 +141,21 @@ const status = memo(5_000, (window): Status => {
   };
 });
 
-const tapeFor = memo(1_000, (key) => {
+/**
+ * How long a page of the tape may be held. A second was the answer when this was the only
+ * cache there was; the edge in front of it now holds the same page for `edge.tape`, so a
+ * shorter life here buys no reader anything — it only means every colo that misses recomputes
+ * the page another colo already has. What a held page could cost is a fill the reader never
+ * sees, and it cannot: a socket is sent the last TAIL_SECONDS on connect, four times this,
+ * and pushed every fill after it. A page behind a cursor is history and does not change.
+ */
+export const tapeTtl = (key: string): number => {
+  const [, , , , beforeTs, beforeId] = key.split("|");
+  const cursored = Number(beforeTs) > 0 && Number(beforeId) > 0;
+  return ms(cursored ? limits.cache.cursorSeconds : (limits.cache.edge.tape ?? 15)) * pressure();
+};
+
+const tapeFor = memo(tapeTtl, (key) => {
   const [window, stocksFlag, dustFlag, limitText, beforeTs, beforeId] = key.split("|");
   const limit = Math.min(Number(limitText) || 400, 1_000);
   const stocks = stocksFlag !== "false";
@@ -152,7 +166,7 @@ const tapeFor = memo(1_000, (key) => {
     Number(beforeTs) > 0 && Number(beforeId) > 0 ? { ts: Number(beforeTs), id: Number(beforeId) } : undefined;
   // The dusting goes in the query; whether a token is a stock is decided in `toFill`, so both
   // filters that turn on one run here — and that is why the read is twice the page.
-  const rows = tape(since(window), limit * 2, dust, before);
+  const rows = measure("tape:page", () => tape(since(window), limit * 2, dust, before));
   // The page itself, and the two subqueries each row carries — the wallet's first buy of the
   // token, and who else bought it in the hour before — which walk an index apiece.
   spend(rows.length * 3);
@@ -186,7 +200,13 @@ const bagsFor = memo(ttlBy(MARKED, "bags"), (key) => {
  * The discover page: the young pools, and everyone who bought one. Bounded by the pool age
  * the storage layer cuts at rather than by the window, which here only says what "just now"
  * means — a token three days old belongs on the page whichever window the reader is in.
+ *
+ * Which is why every window wider than that cut asks the same question: `poolWindow` folds
+ * them onto one key, so three identical reads of the pools are one.
  */
+const poolWindow = (window: string): string =>
+  (WINDOW_SECONDS[window as keyof typeof WINDOW_SECONDS] ?? Number.POSITIVE_INFINITY) >= MAX_POOL_AGE ? "7d" : window;
+
 const discoverFor = memo(ttlBy(MARKED, "discover"), (key) => {
   const [window, limitText] = key.split("|");
   const limit = Math.min(Number(limitText) || 60, 200);
@@ -293,8 +313,9 @@ export const api = new Hono()
     );
     return found === null ? c.json({ error: "no such trader" }, 404) : c.json(found);
   })
+  // Folded onto the window the page is really cut at: see `poolWindow`.
   .get("/api/discover", (c) =>
-    c.json(discoverFor([c.req.query("window") ?? "24h", c.req.query("limit") ?? "60"].join("|"))),
+    c.json(discoverFor([poolWindow(c.req.query("window") ?? "24h"), c.req.query("limit") ?? "60"].join("|"))),
   )
   // A 500 with nothing behind it is a screen that stopped for a reason nobody can read.
   .onError((error, c) => {

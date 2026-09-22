@@ -269,12 +269,17 @@ exports. A module with no exports listed is an entry point that runs on import.
                         edge cache through the `x-ttl` header routes.ts sets. `measure` names a
                         piece of work and keeps what it walked, which is how the cost of a page
                         or a job is known rather than argued about.
-    38 routes.ts        api COUNTED MARKED ttlBy
+    38 routes.ts        api COUNTED MARKED ttlBy tapeTtl
                         The Hono app: the GET routes, the in-process memo in front of them, and
                         the `x-ttl` every answer carries for the edge. All the lifetimes come
                         from config/limits.json, keyed by the route's own name — the segment
                         after /api/, never a prefix of the path, or /api/traders is answered by
-                        whichever of it and /api/trader was written down first.
+                        whichever of it and /api/trader was written down first. A memo shorter
+                        than the edge lifetime in front of it buys no reader anything and costs
+                        one read per colo that misses, so none of them is: `tapeTtl` holds a
+                        page of the tape for `edge.tape` and one behind a cursor far longer, and
+                        `poolWindow` folds every window wider than MAX_POOL_AGE onto one key,
+                        because the discovery page they ask for is the same page.
     38b html.ts         escaped usd count when named table LINKS STYLE Cell
                         The little of HTML the runtime writes itself. Nothing reaches a page
                         from here unescaped.
