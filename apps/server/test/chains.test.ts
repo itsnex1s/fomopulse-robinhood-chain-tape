@@ -92,6 +92,23 @@ test("Base carries what was read off Base", () => {
   expect(base.quoteTokens["0x4200000000000000000000000000000000000006"]).toEqual({ symbol: "WETH", decimals: 18 });
 });
 
+test("BNB Chain carries what was read off BNB Chain", () => {
+  const bsc = CHAINS.bsc;
+  expect(bsc.id).toBe(56);
+  expect(bsc.multicall3.toLowerCase()).toBe("0xca11bde05977b3631167028862be2a173976ca11");
+  expect(bsc.rpcWs.startsWith("wss://")).toBe(true);
+  expect(bsc.rpcFallbackHttp).not.toBe("");
+  expect(bsc.rpcFallbackHttp).not.toBe(bsc.rpcHttp);
+  expect(bsc.explorer).toBe("https://bscscan.com");
+  const quotes = Object.entries<ChainFile["quoteTokens"][string]>(bsc.quoteTokens);
+  expect(quotes.map(([, q]) => q.symbol).sort()).toEqual(["BUSD", "USDC", "USDT", "WBNB"]);
+  expect(quotes.filter(([, q]) => q.usd === undefined).map(([, q]) => q.symbol)).toEqual(["WBNB"]);
+  for (const [address] of quotes) expect(address).toBe(address.toLowerCase());
+  // The stablecoins on this chain answer 18 to decimals, not the 6 their namesakes do elsewhere;
+  // a fill sized with 6 here would be a trillion times too large.
+  for (const [, q] of quotes) expect(q.decimals).toBe(18);
+});
+
 test("a chain with one provider and no explorer is a chain, not a config mistake", () => {
   expect(() => validateChain({ ...sound, rpcFallbackHttp: "", explorer: "" })).not.toThrow();
   // Present but nonsense is still refused: empty says there is none, a typo says nothing.

@@ -1,6 +1,7 @@
 import { type Address, createPublicClient, defineChain, type Hex, http, pad } from "viem";
 import arcJson from "../../../config/chains/arc.json" with { type: "json" };
 import baseJson from "../../../config/chains/base.json" with { type: "json" };
+import bscJson from "../../../config/chains/bsc.json" with { type: "json" };
 import ethereumJson from "../../../config/chains/ethereum.json" with { type: "json" };
 import robinhoodJson from "../../../config/chains/robinhood.json" with { type: "json" };
 import fomoJson from "../../../config/fomo.json" with { type: "json" };
@@ -99,7 +100,13 @@ function validateFomo(fomo: typeof fomoJson): void {
  * chain a given process follows, named by CHAIN; the rest are here so a typo or a truncated
  * file fails the typecheck and the suite rather than the deploy that switches over.
  */
-export const CHAINS = { robinhood: robinhoodJson, arc: arcJson, ethereum: ethereumJson, base: baseJson } as const;
+export const CHAINS = {
+  robinhood: robinhoodJson,
+  arc: arcJson,
+  ethereum: ethereumJson,
+  base: baseJson,
+  bsc: bscJson,
+} as const;
 export type ChainName = keyof typeof CHAINS;
 
 /** Which of them this process follows. Read once, at module scope, because the clients, the
