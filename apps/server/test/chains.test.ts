@@ -73,6 +73,25 @@ test("Ethereum carries what was read off Ethereum", () => {
   expect(ethereum.quoteTokens["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"]).toEqual({ symbol: "WETH", decimals: 18 });
 });
 
+test("Base carries what was read off Base", () => {
+  const base = CHAINS.base;
+  expect(base.id).toBe(8453);
+  expect(base.multicall3.toLowerCase()).toBe("0xca11bde05977b3631167028862be2a173976ca11");
+  expect(base.rpcWs.startsWith("wss://")).toBe(true);
+  expect(base.rpcFallbackHttp).not.toBe("");
+  expect(base.rpcFallbackHttp).not.toBe(base.rpcHttp);
+  expect(base.explorer).toBe("https://basescan.org");
+  // What the chain's own endpoint states: "maximum 10 calls in 1 batch". Twenty, the default, is
+  // answered with one error and no id, and a busy transaction's lookups never land.
+  expect(base.rpcBatch).toBe(10);
+  const quotes = Object.entries<ChainFile["quoteTokens"][string]>(base.quoteTokens);
+  expect(quotes.map(([, q]) => q.symbol).sort()).toEqual(["DAI", "USDC", "USDbC", "WETH"]);
+  expect(quotes.filter(([, q]) => q.usd === undefined).map(([, q]) => q.symbol)).toEqual(["WETH"]);
+  for (const [address] of quotes) expect(address).toBe(address.toLowerCase());
+  // The OP-stack predeploy: the same WETH address on every chain built on it.
+  expect(base.quoteTokens["0x4200000000000000000000000000000000000006"]).toEqual({ symbol: "WETH", decimals: 18 });
+});
+
 test("a chain with one provider and no explorer is a chain, not a config mistake", () => {
   expect(() => validateChain({ ...sound, rpcFallbackHttp: "", explorer: "" })).not.toThrow();
   // Present but nonsense is still refused: empty says there is none, a typo says nothing.

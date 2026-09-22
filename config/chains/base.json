@@ -1,0 +1,19 @@
+{
+  "$comment": "Base, Coinbase's L2. The chain's own endpoint takes everything the tape asks — receipts, code, multicalls, and eth_getLogs by topic with no contract address at two thousand blocks with the whole roster in the filter, the call most public nodes refuse: PublicNode's HTTP answers 403 to every receipt here, blastapi caps a scan at ten blocks — but no more than ten calls in one JSON-RPC batch, which is what rpcBatch says. Tenderly's public gateway takes the scan at five hundred blocks and is the fallback; it rate-limits a burst, which the wide scan is not. PublicNode's socket takes the topic-only subscription and is kept for that. Two-second blocks, so a block count in config/limits.json is about fifteen times longer here in wall-clock terms than on Robinhood Chain. USDbC is the bridged USDC from before the native one; still traded, so still a cash leg.",
+  "id": 8453,
+  "name": "Base",
+  "nativeCurrency": { "name": "Ether", "symbol": "ETH", "decimals": 18 },
+  "rpcHttp": "https://mainnet.base.org",
+  "rpcWs": "wss://base-rpc.publicnode.com",
+  "rpcFallbackHttp": "https://gateway.tenderly.co/public/base",
+  "rpcBatch": 10,
+  "explorer": "https://basescan.org",
+  "multicall3": "0xcA11bde05977b3631167028862bE2a173976CA11",
+  "dexscreenerSlug": "base",
+  "quoteTokens": {
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { "symbol": "USDC", "decimals": 6, "usd": 1 },
+    "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": { "symbol": "USDbC", "decimals": 6, "usd": 1 },
+    "0x50c5725949a6f0c72e6c4a641f24049a917db0cb": { "symbol": "DAI", "decimals": 18, "usd": 1 },
+    "0x4200000000000000000000000000000000000006": { "symbol": "WETH", "decimals": 18 }
+  }
+}
