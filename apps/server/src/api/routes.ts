@@ -18,6 +18,10 @@ import type { Overview, Profile, Status } from "./types.ts";
  * Every open tab polls the same handful of queries, so each answer is computed at most once
  * per `ttlMs` per distinct query and the rest is served from memory. The lifetime may be a
  * function of the key, which is how a window pays for itself: see `byWindow`.
+ *
+ * Bounded at sixty-four answers and evicted by what was wanted longest ago, which matters
+ * because one of the keys is a cursor and there are as many of those as there are readers
+ * paging back.
  */
 function memo<T>(ttlMs: number | ((key: string) => number), compute: (key: string) => T) {
   const cache = new Map<string, { at: number; value: T }>();
@@ -25,7 +29,15 @@ function memo<T>(ttlMs: number | ((key: string) => number), compute: (key: strin
   return (key = ""): T => {
     const hit = cache.get(key);
     const now = Date.now();
-    if (hit && now - hit.at < lifetime(key)) return hit.value;
+    // Taken out and put back on every use. A Map gives up its keys in the order they were
+    // first set and not in the order they were last wanted, so without this the oldest key
+    // is the one every reader asks for, and the pages behind cursors — one per reader who
+    // pages back, and never asked for twice — push it out sixty-four at a time.
+    cache.delete(key);
+    if (hit && now - hit.at < lifetime(key)) {
+      cache.set(key, hit);
+      return hit.value;
+    }
     const value = compute(key);
     cache.set(key, { at: now, value });
     if (cache.size > 64) cache.delete(cache.keys().next().value!);

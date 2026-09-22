@@ -83,3 +83,21 @@ test("every window wider than the oldest pool shown is the same discovery page",
     }),
   ).toBe(2);
 });
+
+test("the page everybody asks for is not the one the cursors push out", async () => {
+  // The memo holds sixty-four answers. A cursor is part of the key and there is one per
+  // reader paging back, so the cold keys always outnumber the hot one; what decides whether
+  // the tape is read once a minute or eighteen times is which of them is given up.
+  const hot = "/api/tape?window=all&limit=301";
+  await api.request(hot);
+  const cold = Array.from({ length: 70 }, (_, i) => `/api/tape?window=all&limit=${400 + i}`);
+
+  const read = await runs("tape:page", async () => {
+    for (const page of cold) {
+      await api.request(page);
+      await api.request(hot);
+    }
+  });
+  // Each cold page once, and the hot one never again: it was wanted most recently every time.
+  expect(read).toBe(cold.length);
+});
