@@ -31,6 +31,8 @@ export interface ChainFile {
   rpcHttp: string;
   rpcWs: string;
   rpcFallbackHttp: string;
+  /** The most calls `rpcHttp` takes in one JSON-RPC batch, when it states a cap; absent means the default. */
+  rpcBatch?: number;
   explorer: string;
   multicall3: string;
   dexscreenerSlug: string;
@@ -54,6 +56,8 @@ export function validateChain(chain: ChainFile): void {
   // it already resolves to undefined rather than to a path on this origin.
   if (chain.explorer !== "" && !/^https?:\/\//.test(chain.explorer))
     invalid(`explorer ${chain.explorer} is not an http(s) URL`);
+  if (chain.rpcBatch !== undefined && (!Number.isInteger(chain.rpcBatch) || chain.rpcBatch < 1))
+    invalid(`rpcBatch ${chain.rpcBatch} is not a positive integer`);
   if (!ADDRESS.test(chain.multicall3)) invalid(`multicall3 ${chain.multicall3} is not an address`);
   if (!chain.dexscreenerSlug) invalid("dexscreenerSlug is missing");
   for (const [address, token] of Object.entries(chain.quoteTokens)) {
@@ -106,7 +110,7 @@ function chosen(): ChainName {
   return asked as ChainName;
 }
 
-const chainJson = CHAINS[chosen()];
+const chainJson: ChainFile = CHAINS[chosen()];
 
 for (const file of Object.values(CHAINS)) validateChain(file);
 validateFomo(fomoJson);
@@ -189,10 +193,18 @@ const settings = (from: Secrets): Settings => {
 
 export let env = settings(ofProcess());
 
+/** How many calls leave in one batch. Twenty unless the chain file says its endpoint takes fewer:
+ *  a node that caps a batch answers a longer one with a single error and no `id`, which reads as
+ *  every call in it failing, and a transaction with that many participants is never stored. */
+const BATCH_SIZE = chainJson.rpcBatch ?? 20;
+
 /** One client for every HTTP call: concurrent calls leave as one JSON-RPC batch, which is one request
  *  against the public endpoint's limiter instead of many. viem backs off exponentially from `retryDelay`,
  *  so the retry count is what bounds a refused call — four attempts is fifteen seconds, the Worker's budget. */
-const clientFor = (url: string, batch: false | { batchSize: number; wait: number } = { batchSize: 20, wait: 16 }) =>
+const clientFor = (
+  url: string,
+  batch: false | { batchSize: number; wait: number } = { batchSize: BATCH_SIZE, wait: 16 },
+) =>
   createPublicClient({
     chain,
     transport: http(url, { batch, retryCount: 4, retryDelay: 1_000 }),

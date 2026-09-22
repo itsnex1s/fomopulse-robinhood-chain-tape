@@ -80,6 +80,12 @@ test("a chain with one provider and no explorer is a chain, not a config mistake
   expect(() => validateChain({ ...sound, explorer: "explorer.example" })).toThrow(/explorer/);
 });
 
+test("a batch cap is a positive integer or absent", () => {
+  expect(() => validateChain({ ...sound, rpcBatch: 10 })).not.toThrow();
+  expect(() => validateChain({ ...sound, rpcBatch: 0 })).toThrow(/rpcBatch/);
+  expect(() => validateChain({ ...sound, rpcBatch: 2.5 })).toThrow(/rpcBatch/);
+});
+
 test("what a chain cannot be missing", () => {
   expect(() => validateChain({ ...sound, id: 0 })).toThrow(/chain id/);
   expect(() => validateChain({ ...sound, rpcHttp: "" })).toThrow(/rpcHttp/);

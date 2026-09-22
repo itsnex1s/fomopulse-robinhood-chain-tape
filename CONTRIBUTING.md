@@ -49,7 +49,10 @@ must be unique.
 Copy `config/chains/robinhood.json`, fill in the chain id, RPC, explorer, Multicall3 and the
 DexScreener slug, and list the quote tokens: stablecoins with `"usd": 1`, the wrapped native
 coin without a fixed value (it is priced through the feed). The reconstruction only assumes
-that trades settle in one of those quote tokens; it does not depend on the DEX.
+that trades settle in one of those quote tokens; it does not depend on the DEX. Check that
+`rpcHttp` answers `eth_getLogs` filtered by topic with no contract address, which most public
+nodes refuse, or give a `rpcFallbackHttp` that does; and if it caps a JSON-RPC batch, say so in
+`rpcBatch`.
 
 ## Fixing the reconstruction
 
