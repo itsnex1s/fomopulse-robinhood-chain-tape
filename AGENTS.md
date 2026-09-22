@@ -303,12 +303,15 @@ exports. A module with no exports listed is an entry point that runs on import.
     41 index.ts         (entry)
                         The edge: assets, the /ws forward, and the colo cache for /api/*, keyed on
                         the canonical query and held for as long as the object asks.
-    41b cache.ts        canonical barred barredResponse named nameless throttled tooMany RateLimiter
-                        Verdict
+    41b cache.ts        canonical barred barredResponse named nameless impersonating pretending
+                        throttled tooMany RateLimiter Verdict
                         What the edge decides before the object is reached: the canonical query an
                         answer is filed under, whether the caller says what it is, whether this
                         address has had its minute of it, and whether it is answered at all.
                         `barred` is the one door with nothing behind it, read from cache.blocked.
+                        `named` and `impersonating` together ask one thing of whatever reaches
+                        the object: give a name. A client that gives its own is let through; one
+                        that writes Mozilla/5.0 and sends nothing a browser sends is not.
     42 tape.ts          Tape
                         The Durable Object: the alarm pulse, the pass budget, the deduplication slot,
                         the beat that /api/alive reports, and the hibernating reader sockets. The

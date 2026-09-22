@@ -115,6 +115,39 @@ export const nameless = (): Response =>
     headers: { "content-type": "application/json" },
   });
 
+const sameHost = (value: string | null, host: string): boolean => {
+  if (value === null || value === "") return false;
+  try {
+    return new URL(value).host === host;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Whether the caller claims to be a browser without sending anything a browser sends. Every
+ * fetch a browser makes carries `sec-fetch-site`, and one made by our own page carries an
+ * `origin` or a `referer` on this host besides; a script that writes `Mozilla/5.0` into its
+ * user-agent and stops there carries none of the three.
+ *
+ * What this refuses is the impersonation, not the automation: a client that gives its own
+ * name is taken at its word and let through, which is the whole difference between this and
+ * closing the API. One header defeats it, and that is the point — the cost of being allowed
+ * is saying what you are.
+ */
+export function impersonating(request: Request, host: string): boolean {
+  if (!/^Mozilla\//i.test((request.headers.get("user-agent") ?? "").trim())) return false;
+  if (request.headers.get("sec-fetch-site") !== null) return false;
+  return !sameHost(request.headers.get("origin"), host) && !sameHost(request.headers.get("referer"), host);
+}
+
+/** Said plainly, because the way through it is a header the caller can set. */
+export const pretending = (): Response =>
+  new Response(JSON.stringify({ error: "name your client in user-agent" }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
 export const tooMany = (): Response =>
   new Response(JSON.stringify({ error: "too many requests" }), {
     status: 429,
