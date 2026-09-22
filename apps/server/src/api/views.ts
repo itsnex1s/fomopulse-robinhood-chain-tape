@@ -1,4 +1,4 @@
-import { wallets } from "../config.ts";
+import { chainConfig, wallets } from "../config.ts";
 
 /**
  * The addresses the web app draws itself, which both runtimes answer with the app shell.
@@ -33,22 +33,20 @@ export interface Page {
  */
 export const PAGES: Record<string, Page> = {
   "/": {
-    title: "fomopulse — live tape of the top fomo.family traders on Robinhood Chain",
-    description:
-      "Every buy and sell of the top fomo.family traders on Robinhood Chain, on one live tape: size, price, token, trader, transaction. Open source, read-only, no keys, no trading.",
+    title: `fomopulse — live tape of the top fomo.family traders on ${chainConfig.name}`,
+    description: `Every buy and sell of the top fomo.family traders on ${chainConfig.name}, on one live tape: size, price, token, trader, transaction. Open source, read-only, no keys, no trading.`,
   },
   "/traders": {
-    title: "Traders — who is making money on Robinhood Chain · fomopulse",
+    title: `Traders — who is making money on ${chainConfig.name} · fomopulse`,
     description:
       "Every tracked fomo.family trader ranked by realised and open profit over the last hour, day, week or month, walked from this tape's own fills rather than reported by anyone.",
   },
   "/bags": {
     title: "Bags — what the fomo.family traders are still holding · fomopulse",
-    description:
-      "What the tracked fomo.family wallets are long on Robinhood Chain right now: size, cost, return, and how many of them entered or left over the window.",
+    description: `What the tracked fomo.family wallets are long on ${chainConfig.name} right now: size, cost, return, and how many of them entered or left over the window.`,
   },
   "/discover": {
-    title: "Discover — new Robinhood Chain tokens the fomo.family traders are buying · fomopulse",
+    title: `Discover — new ${chainConfig.name} tokens the fomo.family traders are buying · fomopulse`,
     description:
       "Pools opened in the last three days that tracked fomo.family wallets have bought into: who was first in, at what market cap, and what the pool has done since.",
   },

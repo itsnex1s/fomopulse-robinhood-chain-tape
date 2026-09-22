@@ -5,7 +5,7 @@ import { BagRow } from "./bags-row.tsx";
 import { useUi } from "./store.ts";
 import { head, mid, roomy, SortHeader, sorted, useSort, wide } from "./table.tsx";
 
-export function Bags() {
+export function Bags({ chain }: { chain: number }) {
   const filter = useUi((state) => state.filter.trim().toLowerCase());
   const window = useUi((state) => state.window);
   const { sort, flip } = useSort<SortKey>("value");
@@ -116,7 +116,7 @@ export function Bags() {
         </thead>
         <tbody>
           {rows.map((bag) => (
-            <BagRow key={`${bag.network}:${bag.token}`} bag={bag} top={top} now={now} window={window} />
+            <BagRow key={`${bag.network}:${bag.token}`} bag={bag} top={top} now={now} window={window} tracked={chain} />
           ))}
         </tbody>
         {rows.length > 0 && (

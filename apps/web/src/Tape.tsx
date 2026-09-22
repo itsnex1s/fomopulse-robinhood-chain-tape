@@ -18,7 +18,7 @@ const barWidth = (value: number) =>
 const num = `${cell} text-right`;
 const badge = "ml-1 align-top text-[9px]";
 
-const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
+const Row = memo(function Row({ id, explorer, slug, chain }: Links & { id: string }) {
   const fill = useTape((state) => state.byId[id]);
   // A phone has no hover: the same two cards open under the row when it is tapped.
   const [open, setOpen] = useState(false);
@@ -82,7 +82,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
           {vsNow === null ? "" : pct(vsNow)}
         </td>
         <td className={cell}>
-          <Hover card={() => <TokenCard fill={fill} explorer={explorer} slug={slug} />}>
+          <Hover card={() => <TokenCard fill={fill} explorer={explorer} slug={slug} chain={chain} />}>
             <Avatar src={fill.image_url} seed={fill.token} size={12} />
             <a
               className={`ml-1.5 inline-block max-w-[22vw] truncate align-bottom hover:text-accent sm:max-w-[16ch] ${thin ? "underline decoration-dotted decoration-dimmer underline-offset-2" : ""}`}
@@ -167,7 +167,7 @@ const Row = memo(function Row({ id, explorer, slug }: Links & { id: string }) {
         <tr className="sm:hidden">
           <td colSpan={6} className="whitespace-normal px-2 pb-2">
             <div className="grid gap-2 rounded-[2px] border border-line bg-panel p-2 text-[11px] leading-[16px] text-dim">
-              <TokenCard fill={fill} explorer={explorer} slug={slug} />
+              <TokenCard fill={fill} explorer={explorer} slug={slug} chain={chain} />
               <TraderCard fill={fill} />
             </div>
           </td>
@@ -214,7 +214,7 @@ function Older({ window: window_, stocks, dust }: { window: Window; stocks: bool
   );
 }
 
-export function Tape({ explorer, slug }: Links) {
+export function Tape({ explorer, slug, chain }: Links) {
   const filter = useUi((state) => state.filter.trim().toLowerCase());
   const page = useUi(useShallow((state) => ({ window: state.window, stocks: state.stocks, dust: state.dust })));
   const ids = useTape(
@@ -289,7 +289,7 @@ export function Tape({ explorer, slug }: Links) {
       </thead>
       <tbody>
         {ids.map((id) => (
-          <Row key={id} id={id} explorer={explorer} slug={slug} />
+          <Row key={id} id={id} explorer={explorer} slug={slug} chain={chain} />
         ))}
       </tbody>
       {/* Outside the filter: a filter matching nothing loaded yet is when this is most wanted. */}

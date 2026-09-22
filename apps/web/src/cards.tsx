@@ -1,16 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Avatar } from "./Avatar.tsx";
-import { fomoTokenUrl, getTraders, TRACKED_CHAIN, tokenExplorerUrl, tokenUrl, traderUrl } from "./api.ts";
+import { fomoTokenUrl, getTraders, tokenExplorerUrl, tokenUrl, traderUrl } from "./api.ts";
 import { ago, compact, pct, price, short, signed, span, usdCompact } from "./format.ts";
 import { Rows } from "./Hover.tsx";
 import { useUi } from "./store.ts";
 import { tone } from "./table.tsx";
 import type { Fill } from "./types.ts";
 
-/** What the status endpoint said about the chain: where a transaction and a token are looked up. */
+/** What the status endpoint said about the chain: where a transaction and a token are looked up,
+ *  and the chain id fomo files its token pages under. Zero until the status has arrived. */
 export interface Links {
   explorer: string;
   slug: string;
+  chain: number;
 }
 
 /** Under this much in the pool, a fill of ordinary size moves the price; the symbol carries a dotted line. */
@@ -35,11 +37,11 @@ export const poolAge = (fill: Fill, at: number): number | null =>
 const pnlCell = (value: number) => <span className={tone(value)}>{signed(value)}</span>;
 
 /** The token's card from the feed, on hover: everything the row has no column for. */
-export function TokenCard({ fill, explorer, slug }: { fill: Fill } & Links) {
+export function TokenCard({ fill, explorer, slug, chain }: { fill: Fill } & Links) {
   const now = Math.floor(Date.now() / 1000);
   const vsNow = vsNowPct(fill);
   const age = poolAge(fill, now);
-  const fomo = fomoTokenUrl({ network: TRACKED_CHAIN, token: fill.token });
+  const fomo = fomoTokenUrl({ network: chain, token: fill.token });
   return (
     <>
       <span className="mb-1 flex items-center gap-2 text-fg">

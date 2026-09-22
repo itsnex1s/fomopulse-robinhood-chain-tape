@@ -26,7 +26,7 @@ const BY: Record<Key, (t: Trader) => number> = {
   seen: (t) => t.last_ts ?? -Infinity,
 };
 
-export function Traders() {
+export function Traders({ chain }: { chain: string }) {
   const window = useUi((state) => state.window);
   const filter = useUi((state) => state.filter.trim().toLowerCase());
   const { sort, flip } = useSort<Key>("pnl");
@@ -216,8 +216,9 @@ export function Traders() {
             <tr>
               <td colSpan={12} className="px-2 py-2 text-[10px] text-dimmer">
                 {rows.length} tracked traders, {active} of them traded in this window · p/l, win rate and positions are
-                walked from this tape's own fills on Robinhood Chain, {ago(stamp)} old · a trip counts in the window it
-                closed in, and what is still held is marked at the feed's price · the avatar and the handle are fomo's
+                walked from this tape's own fills{chain ? ` on ${chain}` : ""}, {ago(stamp)} old · a trip counts in the
+                window it closed in, and what is still held is marked at the feed's price · the avatar and the handle
+                are fomo's
               </td>
             </tr>
           </tfoot>

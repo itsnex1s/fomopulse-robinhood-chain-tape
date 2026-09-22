@@ -87,6 +87,8 @@ export interface Status {
   /** The window's own line, carried here so a tab polls one endpoint instead of two. */
   overview: Overview;
   chain_id: number;
+  /** The chain's own name, for the lines on the screens that say which one this tape is on. */
+  chain: string;
   wallets: number;
   trades: number;
   first_ts: number | null;

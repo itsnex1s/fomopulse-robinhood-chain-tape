@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { blockUrl, tokenExplorerUrl, txUrl } from "./api.ts";
+import { blockUrl, chainName, tokenExplorerUrl, txUrl } from "./api.ts";
 
 const tx = "0xabc";
 
@@ -16,4 +16,14 @@ test("with an explorer it is the explorer's own path", () => {
   expect(txUrl("https://scan.example", tx)).toBe("https://scan.example/tx/0xabc");
   expect(tokenExplorerUrl("https://scan.example", "0xdef")).toBe("https://scan.example/token/0xdef");
   expect(blockUrl("https://scan.example", 12)).toBe("https://scan.example/block/12");
+});
+
+test("the tracked chain is the one with no badge, whichever it is", () => {
+  // The badge marks a bag as sitting somewhere other than the chain this tape follows, and
+  // which chain that is comes from /api/status: on an Ethereum deployment ETH is home.
+  expect(chainName(4663, 4663)).toBe("");
+  expect(chainName(1, 4663)).toBe("ETH");
+  expect(chainName(1, 1)).toBe("");
+  expect(chainName(4663, 1)).toBe("RH");
+  expect(chainName(99, 1)).toBe("#99");
 });

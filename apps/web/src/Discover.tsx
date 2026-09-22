@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { getDiscover, TRACKED_CHAIN } from "./api.ts";
+import { getDiscover } from "./api.ts";
 import { BY, CUTS, type Cuts, keep, name, type SortKey } from "./discover-math.ts";
 import { DiscoverRow } from "./discover-row.tsx";
 import { useUi } from "./store.ts";
@@ -15,7 +15,7 @@ function Toggle({ on, off, active, onClick }: { on: string; off: string; active:
   );
 }
 
-export function Discover() {
+export function Discover({ chain }: { chain: number }) {
   const window = useUi((state) => state.window);
   const filter = useUi((state) => state.filter.trim().toLowerCase());
   const { sort, flip } = useSort<SortKey>("heat");
@@ -136,7 +136,7 @@ export function Discover() {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <DiscoverRow key={row.token} row={row} now={now} network={TRACKED_CHAIN} />
+            <DiscoverRow key={row.token} row={row} now={now} network={chain} />
           ))}
         </tbody>
         <tfoot>

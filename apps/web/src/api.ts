@@ -29,9 +29,6 @@ export const getDiscover = (window: Window) => json<Discover[]>(`/api/discover?w
 /** Sorting happens on the client, so it asks for the whole list rather than the top of one ordering. */
 export const getBags = (window: Window) => json<Bag[]>(`/api/bags?window=${window}&limit=200`);
 
-/** The chain this tape follows; the server configures the same id. */
-export const TRACKED_CHAIN = 4663;
-
 /** DexScreener names the chains a bag can sit on. */
 const SLUGS: Record<number, string> = {
   4663: "robinhood",
@@ -42,8 +39,9 @@ const SLUGS: Record<number, string> = {
 };
 /** fomo's own slugs differ in one place: BNB Chain is `bnb` there. */
 const FOMO_SLUGS: Record<number, string> = { ...SLUGS, 56: "bnb" };
-export const chainName = (id: number) =>
-  ({ 4663: "", 56: "BSC", 1399811149: "SOL", 1: "ETH", 8453: "BASE" })[id] ?? `#${id}`;
+/** A badge for a chain other than the one this tape follows, which is the one that needs no name. */
+export const chainName = (id: number, tracked: number) =>
+  id === tracked ? "" : ({ 4663: "RH", 56: "BSC", 1399811149: "SOL", 1: "ETH", 8453: "BASE" }[id] ?? `#${id}`);
 /** The pool the quote came from when there is one, else the token's page. */
 export const bagUrl = (bag: { network: number; token: string; pair_address?: string | null }) =>
   SLUGS[bag.network] ? `https://dexscreener.com/${SLUGS[bag.network]}/${bag.pair_address ?? bag.token}` : undefined;

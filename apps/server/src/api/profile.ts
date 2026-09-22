@@ -1,3 +1,4 @@
+import { chainConfig } from "../config.ts";
 import { count, escaped, LINKS, named, STYLE, table, usd, when } from "./html.ts";
 import type { Profile } from "./types.ts";
 import { SITE, traderPath } from "./views.ts";
@@ -11,9 +12,9 @@ import { SITE, traderPath } from "./views.ts";
 
 /** The head of a trader's page: their name, and a sentence that is about them and nobody else. */
 export const traderPage = (handle: string): { title: string; description: string } => ({
-  title: `${handle} — fomo.family trades and profit and loss on Robinhood Chain · fomopulse`,
+  title: `${handle} — fomo.family trades and profit and loss on ${chainConfig.name} · fomopulse`,
   description:
-    `Every buy and sell ${handle} has made on Robinhood Chain, read off the chain's own transfer logs: ` +
+    `Every buy and sell ${handle} has made on ${chainConfig.name}, read off the chain's own transfer logs: ` +
     `size, price, token and transaction, with realised and open profit walked from those fills.`,
 });
 
@@ -115,7 +116,7 @@ export function traderDocument(profile: Profile, window: string): string {
 <p class="crumb"><a href="/">fomopulse</a> / <a href="/traders">traders</a> / ${escaped(profile.handle)}</p>
 <h1>${escaped(profile.handle)}</h1>
 ${who(profile)}
-<p>What this tape saw ${escaped(profile.handle)} do on Robinhood Chain over the last ${escaped(window)}, reconstructed
+<p>What this tape saw ${escaped(profile.handle)} do on ${escaped(chainConfig.name)} over the last ${escaped(window)}, reconstructed
 from the chain's own transfer logs. Every figure below was walked from those fills; fomo.family is asked only for the
 name. <a href="/about">How the tape is built</a>.</p>
 ${books(profile)}

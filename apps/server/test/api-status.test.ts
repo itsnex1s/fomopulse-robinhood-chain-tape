@@ -7,6 +7,7 @@ test("status carries what the client builds links and the header from", async ()
   expect(res.status).toBe(200);
   const body = (await res.json()) as Record<string, unknown>;
   expect(body.chain_id).toBe(4663);
+  expect(body.chain).toBe("Robinhood Chain");
   expect(body.wallets).toBe(wallets.length);
   expect(typeof body.trades).toBe("number");
   expect(typeof body.last_block).toBe("number");

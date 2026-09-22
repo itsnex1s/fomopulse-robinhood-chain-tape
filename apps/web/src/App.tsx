@@ -50,6 +50,12 @@ export default function App() {
   // cursor away, so they wait in the store until the tape is back at the top.
   const onScroll = () => useTape.getState().setHold((scrollRef.current?.scrollTop ?? 0) > 8);
 
+  // Which chain this tape is on, from the server: the app draws whatever chain it is served.
+  const chain = status.data?.chain ?? "";
+  const chainId = status.data?.chain_id ?? 0;
+  const explorer = status.data?.explorer ?? "";
+  const slug = status.data?.dexscreener_slug ?? "";
+
   const toTop = () => {
     scrollRef.current?.scrollTo({ top: 0 });
     useTape.getState().setHold(false);
@@ -58,15 +64,15 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <h1 className="sr-only">fomopulse — open source live tape of the top fomo.family traders on Robinhood Chain</h1>
+      <h1 className="sr-only">
+        fomopulse — open source live tape of the top fomo.family traders{chain ? ` on ${chain}` : ""}
+      </h1>
       <StatusBar status={status.data} feed={feed} filterRef={filterRef} />
       <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-auto">
-        {view === "tape" && (
-          <Tape explorer={status.data?.explorer ?? ""} slug={status.data?.dexscreener_slug ?? "robinhood"} />
-        )}
-        {view === "traders" && <Traders />}
-        {view === "bags" && <Bags />}
-        {view === "discover" && <Discover />}
+        {view === "tape" && <Tape explorer={explorer} slug={slug} chain={chainId} />}
+        {view === "traders" && <Traders chain={chain} />}
+        {view === "bags" && <Bags chain={chainId} />}
+        {view === "discover" && <Discover chain={chainId} />}
         {view === "tape" && pending > 0 && (
           <button
             type="button"

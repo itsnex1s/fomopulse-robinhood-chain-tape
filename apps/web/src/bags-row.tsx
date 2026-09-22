@@ -1,5 +1,5 @@
 import { Avatar } from "./Avatar.tsx";
-import { bagUrl, chainName, fomoTokenUrl, TRACKED_CHAIN, traderUrl } from "./api.ts";
+import { bagUrl, chainName, fomoTokenUrl, traderUrl } from "./api.ts";
 import { barWidth, cost, holderTitle, name, net, ret, retLabel } from "./bags-math.ts";
 import { ago, price as fmtPrice, pct, signed, span, usdCompact } from "./format.ts";
 import { useUi } from "./store.ts";
@@ -15,11 +15,23 @@ function Delta({ now, then, percent = false }: { now: number; then: number | nul
   return <span className={`ml-1 text-[10px] ${diff > 0 ? "text-up" : "text-down"}`}>{text}</span>;
 }
 
-export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: number; window: string }) {
+export function BagRow({
+  bag,
+  top,
+  now,
+  window,
+  tracked,
+}: {
+  bag: Bag;
+  top: number;
+  now: number;
+  window: string;
+  tracked: number;
+}) {
   const set = useUi((state) => state.set);
   const url = bagUrl(bag);
   const fomo = fomoTokenUrl(bag);
-  const chain = chainName(bag.network);
+  const chain = chainName(bag.network, tracked);
   const r = ret(bag.value, bag.pnl);
   const [first, ...rest] = bag.holders_list;
   const share = bag.value && bag.top_value ? Math.round((bag.top_value / bag.value) * 100) : 0;
@@ -96,7 +108,7 @@ export function BagRow({ bag, top, now, window }: { bag: Bag; top: number; now: 
         title={
           bag.fills > 0
             ? `${bag.buys} buys ${usdCompact(bag.bought_usd)} · ${bag.fills - bag.buys} sells ${usdCompact(bag.sold_usd)} · ${bag.traders_in} traders`
-            : bag.network === TRACKED_CHAIN
+            : bag.network === tracked
               ? "no fills on this tape in the window"
               : "off the tracked chain"
         }
