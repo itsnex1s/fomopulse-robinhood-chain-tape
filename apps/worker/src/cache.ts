@@ -115,38 +115,20 @@ export const nameless = (): Response =>
     headers: { "content-type": "application/json" },
   });
 
-const sameHost = (value: string | null, host: string): boolean => {
-  if (value === null || value === "") return false;
-  try {
-    return new URL(value).host === host;
-  } catch {
-    return false;
-  }
-};
-
 /**
- * Whether the caller claims to be a browser without sending anything a browser sends. Every
- * fetch a browser makes carries `sec-fetch-site`, and one made by our own page carries an
- * `origin` or a `referer` on this host besides; a script that writes `Mozilla/5.0` into its
- * user-agent and stops there carries none of the three.
+ * There is deliberately no rule here that reads a user-agent and decides what the caller is.
+ * The header is a string the caller writes, so every such rule is a classifier guessing at an
+ * unauthenticated claim: one that refuses `Mozilla/5.0` refuses `Mozilla/5.0 (compatible;
+ * Name/1.0)` with it, which is the shape a bot names itself in and Googlebot's own.
  *
- * What this refuses is the impersonation, not the automation: a client that gives its own
- * name is taken at its word and let through, which is the whole difference between this and
- * closing the API. One header defeats it, and that is the point — the cost of being allowed
- * is saying what you are.
+ * The mechanisms that answer this properly answer it with proof, not with a string:
+ *   a request from our own page  ->  Fetch Metadata, which the browser sets and a page cannot
+ *   a bot that is who it says    ->  Web Bot Auth: RFC 9421 signatures under Signature-Agent
+ *   a crawler nobody wants       ->  the zone's managed list, which Cloudflare keeps current
+ *   a client allowed to automate ->  a credential
+ * and what an anonymous caller may cost is answered by the two caches and `throttled`, which
+ * need to know nothing about anyone. Adding a fifth guess here would only look like an answer.
  */
-export function impersonating(request: Request, host: string): boolean {
-  if (!/^Mozilla\//i.test((request.headers.get("user-agent") ?? "").trim())) return false;
-  if (request.headers.get("sec-fetch-site") !== null) return false;
-  return !sameHost(request.headers.get("origin"), host) && !sameHost(request.headers.get("referer"), host);
-}
-
-/** Said plainly, because the way through it is a header the caller can set. */
-export const pretending = (): Response =>
-  new Response(JSON.stringify({ error: "name your client in user-agent" }), {
-    status: 403,
-    headers: { "content-type": "application/json" },
-  });
 
 export const tooMany = (): Response =>
   new Response(JSON.stringify({ error: "too many requests" }), {

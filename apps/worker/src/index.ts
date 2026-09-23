@@ -9,17 +9,7 @@ import { dress, SOURCE, TRADER_FILLS, TRADER_WINDOW } from "../../server/src/api
 import type { Profile } from "../../server/src/api/types.ts";
 import { isViewPath, traderOf, trimmed } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
-import {
-  barred,
-  barredResponse,
-  canonical,
-  impersonating,
-  named,
-  nameless,
-  pretending,
-  throttled,
-  tooMany,
-} from "./cache.ts";
+import { barred, barredResponse, canonical, named, nameless, throttled, tooMany } from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -128,12 +118,10 @@ export default {
     if (barred(request)) return barredResponse();
 
     // Everything past this line can reach the object, and the object is what the bill is made
-    // of. The page and its assets are served to anyone at all; this is only the door to the
-    // object, and what it asks for is a name: see `named` and `impersonating`.
-    if (url.pathname === "/ws" || url.pathname.startsWith("/api/")) {
-      if (!named(request)) return nameless();
-      if (impersonating(request, url.host)) return pretending();
-    }
+    // of. The page and its assets are served to anyone at all; this asks the one thing of a
+    // caller that costs nothing to honour and nothing to check, and what the caller may then
+    // spend is `throttled`, not anything this believes about it. See cache.ts.
+    if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) && !named(request)) return nameless();
     // The socket is an object request like any other, and one nothing caches.
     if (url.pathname === "/ws")
       return (await throttled(env.OBJECT_LIMIT, request)) === "over" ? tooMany() : tape(env).fetch(request);

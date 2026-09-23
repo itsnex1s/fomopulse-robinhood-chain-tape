@@ -1,7 +1,7 @@
 /** The canonical query the edge files an answer under. Every value a reader can vary that this
  *  does not fold down is a cache miss they can ask for as often as they like. */
 import { expect, test } from "bun:test";
-import { canonical, impersonating, named, nameless, pretending, throttled, tooMany } from "../../worker/src/cache.ts";
+import { canonical, named, nameless, throttled, tooMany } from "../../worker/src/cache.ts";
 
 const key = (query: string) => canonical(new URL(`https://tape.test/api/tape${query}`)).toString();
 
@@ -74,46 +74,4 @@ test("a caller that will not say what it is does not reach the object", () => {
   expect(named(ask({ "user-agent": "" }))).toBe(false);
   expect(named(ask({ "user-agent": "   " }))).toBe(false);
   expect(nameless().status).toBe(403);
-});
-
-test("a script wearing a browser's name is refused, and a client wearing its own is not", () => {
-  const ask = (headers: Record<string, string>) => new Request("https://tape.test/api/tape", { headers });
-  const at = "tape.test";
-
-  // The two this was written for: a bare Mozilla/5.0, and a truncated real user-agent. Neither
-  // sends a single header the browser it claims to be would have sent.
-  expect(impersonating(ask({ "user-agent": "Mozilla/5.0" }), at)).toBe(true);
-  expect(
-    impersonating(ask({ "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" }), at),
-  ).toBe(true);
-
-  // A client that gives its own name is automation and says so, which is all this asks for.
-  for (const ua of ["fomo-tape/1", "curl/8.7.1", "Go-http-client/1.1", "python-requests/2.31.0"])
-    expect({ ua, refused: impersonating(ask({ "user-agent": ua }), at) }).toEqual({ ua, refused: false });
-
-  expect(pretending().status).toBe(403);
-});
-
-test("what a browser sends is what lets a browser through", () => {
-  const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0";
-  const ask = (headers: Record<string, string>) =>
-    new Request("https://tape.test/api/tape", { headers: { "user-agent": ua, ...headers } });
-  const at = "tape.test";
-
-  // Our own app's fetch, as every browser since Chrome 76 and Firefox 90 sends it.
-  expect(impersonating(ask({ "sec-fetch-site": "same-origin" }), at)).toBe(false);
-  // A browser too old for that still says where it came from. Safari only sends sec-fetch
-  // from 16.4, and refusing everything before it would be refusing readers.
-  expect(impersonating(ask({ origin: "https://tape.test" }), at)).toBe(false);
-  expect(impersonating(ask({ referer: "https://tape.test/traders?window=24h" }), at)).toBe(false);
-
-  // Another site's page is not ours, and neither is a referer that will not parse.
-  expect(impersonating(ask({ origin: "https://not-tape.test" }), at)).toBe(true);
-  expect(impersonating(ask({ referer: "https://not-tape.test/" }), at)).toBe(true);
-  expect(impersonating(ask({ referer: "not a url" }), at)).toBe(true);
-  expect(impersonating(ask({ referer: "" }), at)).toBe(true);
-
-  // A cross-site fetch still says so in sec-fetch-site, and is let through: the page is what
-  // this protects, and reading our JSON from somebody else's page was never the problem.
-  expect(impersonating(ask({ "sec-fetch-site": "cross-site" }), at)).toBe(false);
 });
