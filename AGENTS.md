@@ -299,7 +299,9 @@ exports. A module with no exports listed is an entry point that runs on import.
                         along with the screen's first twenty rows — out of the same answer the
                         page's own polling asks for, so the edge already holds it. Without this
                         every screen is the home page four times over and says so in its
-                        canonical. Both runtimes call it.
+                        canonical. `/traders` also carries the whole roster linked, which is the
+                        only thing that makes a trader's page reachable by following links rather
+                        than by being read off the sitemap. Both runtimes call it.
     38d profile.ts      traderDocument traderPage
                         A tracked trader's own page, written rather than drawn: their books over
                         the week and their last thirty fills. Not a fifth screen — the point is
