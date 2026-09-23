@@ -23,8 +23,18 @@ import type { Overview, Profile, Status } from "./types.ts";
  * because one of the keys is a cursor and there are as many of those as there are readers
  * paging back.
  */
+const caches: Map<string, { at: number; value: unknown }>[] = [];
+
+/** Every answer held in memory, dropped. For the suite: one process, one database and
+ *  lifetimes measured in minutes mean the first test to ask a question answers it for every
+ *  test after it, whatever they inserted in between. */
+export const forget = (): void => {
+  for (const cache of caches) cache.clear();
+};
+
 function memo<T>(ttlMs: number | ((key: string) => number), compute: (key: string) => T) {
   const cache = new Map<string, { at: number; value: T }>();
+  caches.push(cache as Map<string, { at: number; value: unknown }>);
   const lifetime = typeof ttlMs === "function" ? ttlMs : () => ttlMs;
   return (key = ""): T => {
     const hit = cache.get(key);

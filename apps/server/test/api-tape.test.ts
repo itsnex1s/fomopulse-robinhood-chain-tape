@@ -1,7 +1,7 @@
 /** The tape itself: the shape of a row, what the row says about the trade around it,
  *  and the dusting the screen is spared. */
 import { expect, test } from "bun:test";
-import { api, fill, insertFills, now, savePrice, saveToken, wallets } from "./support/api.ts";
+import { api, fill, forget, insertFills, now, savePrice, saveToken, wallets } from "./support/api.ts";
 
 test("the tape serves stored fills in the original site's shape", async () => {
   const trader = wallets[0]!;
@@ -56,10 +56,10 @@ test("a row carries the token's card, whether the buy opened a position, and the
   ]);
   expect(landed).toHaveLength(2);
 
-  // A page size no other test asks for. The memo in front of the route is keyed on the query
-  // and lives for as long as the edge holds a page of the tape, which outlasts the whole run,
-  // so a limit shared with another test is that test's answer and not this one's.
-  const rows = (await (await api.request("/api/tape?limit=397")).json()) as Record<string, unknown>[];
+  // Both answers below are held for longer than the run, so without this they are whatever
+  // the first test to ask for that window and that page size was told.
+  forget();
+  const rows = (await (await api.request("/api/tape?limit=400")).json()) as Record<string, unknown>[];
   const first = rows.find((r) => r.tx === "0xcrowd-1")!;
   const second = rows.find((r) => r.tx === "0xcrowd-2")!;
   // Both are first buys for their wallets; only the later one had company in the hour before.
@@ -112,6 +112,7 @@ test("dusting is hidden from the tape, and one real trade brings the token back"
   );
 
   type Row = { tx: string; token: string; is_dust: number };
+  forget();
   const hidden = (await (await api.request("/api/tape?limit=400")).json()) as Row[];
   expect(hidden.some((f) => f.token === dusted)).toBe(false);
   const shown = (await (await api.request("/api/tape?limit=400&dust=true")).json()) as Row[];
@@ -130,8 +131,8 @@ test("dusting is hidden from the tape, and one real trade brings the token back"
       price: 0.9,
     }),
   ]);
-  // A different limit is a different cache key, so this reads the tape again rather than the memo.
-  const back = (await (await api.request("/api/tape?limit=399")).json()) as Row[];
+  forget();
+  const back = (await (await api.request("/api/tape?limit=400")).json()) as Row[];
   expect(back.filter((f) => f.token === dusted)).toHaveLength(4);
 });
 
