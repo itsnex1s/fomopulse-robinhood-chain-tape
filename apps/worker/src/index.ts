@@ -9,7 +9,7 @@ import { dress, SOURCE, TRADER_FILLS, TRADER_WINDOW } from "../../server/src/api
 import type { Profile } from "../../server/src/api/types.ts";
 import { isViewPath, traderOf, trimmed } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
-import { barred, barredResponse, canonical, named, nameless, throttled, tooMany } from "./cache.ts";
+import { admitted, barred, barredResponse, canonical, named, nameless, throttled, tooMany } from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -32,10 +32,10 @@ const routeOf = (pathname: string): string => pathname.split("/")[2] ?? "";
 const tape = (env: Env) => env.TAPE.get(env.TAPE.idFromName("tape"), { locationHint: "enam" });
 
 /** One `/api` request: from the edge cache when it can be, from the object otherwise. */
-async function answer(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+async function answer(request: Request, env: Env, ctx: ExecutionContext, url: URL, seat: string): Promise<Response> {
   const asked = canonical(url);
   const direct = async () => {
-    const verdict = await throttled(env.OBJECT_LIMIT, request);
+    const verdict = await throttled(env.OBJECT_LIMIT, seat);
     if (verdict === "over") return tooMany();
     const from = await tape(env).fetch(new Request(asked.toString(), request));
     // Copied because a subrequest's headers are immutable and the caller adds to them.
@@ -80,12 +80,18 @@ async function answer(request: Request, env: Env, ctx: ExecutionContext, url: UR
  * once answers this for nothing. A miss spends one of the reader's minute like any other, and
  * a refusal or an error is simply a page without a table on it.
  */
-async function drawn(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<unknown[] | undefined> {
+async function drawn(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  seat: string,
+): Promise<unknown[] | undefined> {
   const source = SOURCE[trimmed(url.pathname)];
   if (source === undefined) return undefined;
   const at = new URL(source, url);
   try {
-    const response = await answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at);
+    const response = await answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at, seat);
     return response.ok ? ((await response.json()) as unknown[]) : undefined;
   } catch {
     return undefined;
@@ -96,9 +102,16 @@ async function drawn(request: Request, env: Env, ctx: ExecutionContext, url: URL
  *  the roster does not know never gets this far, so there is a page per tracked wallet.
  *  There are 287 of these and a crawler goes through them faster than one address may reach
  *  the object, so the refused one has to be refused rather than written empty: see `later`. */
-async function profile(handle: string, request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+async function profile(
+  handle: string,
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  seat: string,
+): Promise<Response> {
   const at = new URL(`/api/trader/${encodeURIComponent(handle)}?window=${TRADER_WINDOW}&limit=${TRADER_FILLS}`, url);
-  const asked = await answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at).catch(
+  const asked = await answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at, seat).catch(
     () => undefined,
   );
   if (asked === undefined) return later(503);
@@ -118,31 +131,38 @@ export default {
     if (barred(request)) return barredResponse();
 
     // Everything past this line can reach the object, and the object is what the bill is made
-    // of. The page and its assets are served to anyone at all; this asks the one thing of a
-    // caller that costs nothing to honour and nothing to check, and what the caller may then
-    // spend is `throttled`, not anything this believes about it. See cache.ts.
+    // of. The page and its assets are served to anyone at all; this is the door to the object,
+    // and what it asks for is the one claim an HTTP request can carry that is checkable. The
+    // seat it hands back is what the ceiling is then counted against. See cache.ts `admitted`.
     if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) && !named(request)) return nameless();
+    const seat = admitted(request, env, url.host);
+    if (seat instanceof Response) {
+      // A page the site draws is served from the assets whatever happens here; only the object
+      // is behind the door. Everything below this line has a seat.
+      if (url.pathname === "/ws" || url.pathname.startsWith("/api/")) return seat;
+    }
+    const spent = seat instanceof Response ? `ip:${request.headers.get("cf-connecting-ip") ?? "anon"}` : seat;
     // The socket is an object request like any other, and one nothing caches.
     if (url.pathname === "/ws")
-      return (await throttled(env.OBJECT_LIMIT, request)) === "over" ? tooMany() : tape(env).fetch(request);
+      return (await throttled(env.OBJECT_LIMIT, spent)) === "over" ? tooMany() : tape(env).fetch(request);
     // The sitemap is written by the object — it names every trader the tape has seen trade —
     // and robots.txt asks for it under this name rather than under /api.
     if (url.pathname === "/sitemap.xml") {
       const at = new URL("/api/sitemap", url);
-      return answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at);
+      return answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at, spent);
     }
     if (!url.pathname.startsWith("/api/")) {
       const handle = traderOf(url.pathname);
-      if (handle !== undefined) return profile(handle, request, env, ctx, url);
+      if (handle !== undefined) return profile(handle, request, env, ctx, url, spent);
       // The app draws four screens and the assets hold one page, so a screen's own address
       // is answered with that page, wearing that screen's own head. Everything else the
       // assets do not have stays a 404.
       if (!isViewPath(url.pathname)) return env.ASSETS.fetch(request);
       const shell = await env.ASSETS.fetch(new Request(new URL("/", url).toString(), request));
-      return dress(shell, url.pathname, await drawn(request, env, ctx, url));
+      return dress(shell, url.pathname, await drawn(request, env, ctx, url, spent));
     }
 
-    const response = await answer(request, env, ctx, url);
+    const response = await answer(request, env, ctx, url, spent);
     // robots.txt lets a crawler read the two endpoints the first paint needs; this keeps
     // the JSON they return out of the index.
     response.headers.set("x-robots-tag", "noindex");

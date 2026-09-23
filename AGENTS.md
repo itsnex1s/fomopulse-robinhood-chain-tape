@@ -80,7 +80,10 @@ in `api/views.ts`. Beside the screens are pages the app does not draw at all: `/
 assets hold, and `/trader/<handle>` for every wallet on the roster, which the runtime writes.
 `/sitemap.xml` names the ones worth fetching and is written too, so nothing drifts.
 
-**API.** `/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/discover`,
+**API.** Behind a key wherever one has been issued: `Authorization: Bearer <key>` against the
+`API_KEYS` secret, `name:secret` comma separated, with the app's own page let through on Fetch
+Metadata because it has nowhere to keep one. The routes are
+`/api/tape`, `/api/status`, `/api/overview`, `/api/traders`, `/api/bags`, `/api/discover`,
 `/api/trader/<handle>`, `/api/sitemap`, `/api/limits`, `/api/alive`,
 plus `/ws` for the live push. All take `window` and most take `limit`; the tape also takes
 `stocks`, `dust` and a `before`/`beforeId` cursor. `api/types.ts` is the single definition of every
@@ -315,8 +318,8 @@ exports. A module with no exports listed is an entry point that runs on import.
     41 index.ts         (entry)
                         The edge: assets, the /ws forward, and the colo cache for /api/*, keyed on
                         the canonical query and held for as long as the object asks.
-    41b cache.ts        canonical barred barredResponse named nameless throttled tooMany
-                        RateLimiter Verdict
+    41b cache.ts        canonical barred barredResponse named nameless admitted ownPage
+                        throttled tooMany RateLimiter Verdict
                         What the edge decides before the object is reached: the canonical query an
                         answer is filed under, whether the caller sent a user-agent at all, whether
                         this address has had its minute of it, and whether it is answered at all.
@@ -324,7 +327,11 @@ exports. A module with no exports listed is an entry point that runs on import.
                         Nothing here reads a user-agent to decide what the caller IS, and the file
                         says at length why: the header is a claim, the answers that are not are
                         Fetch Metadata, Web Bot Auth signatures, the zone's managed list and a
-                        credential, and what an anonymous caller may cost is `throttled`.
+                        credential. `admitted` is the credential one: a bearer token out of the
+                        API_KEYS secret, or `ownPage` for the app's own fetches, and what comes
+                        back is the seat the ceiling is counted against — a client with a key
+                        gets a minute of its own. No API_KEYS means no door, which is what a
+                        clone of this repository should be.
     42 tape.ts          Tape
                         The Durable Object: the alarm pulse, the pass budget, the deduplication slot,
                         the beat that /api/alive reports, and the hibernating reader sockets. The
