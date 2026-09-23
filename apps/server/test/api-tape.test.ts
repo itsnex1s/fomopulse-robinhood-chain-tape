@@ -50,12 +50,16 @@ test("a row carries the token's card, whether the buy opened a position, and the
     },
     now,
   );
-  insertFills([
+  const landed = insertFills([
     fill({ tx: "0xcrowd-1", block: 5, ts: now - 300, wallet: early.address, token, amount: 50, usd: 50, price: 1 }),
     fill({ tx: "0xcrowd-2", block: 6, ts: now - 10, wallet: late.address, token, amount: 5_000, usd: 5_000, price: 1 }),
   ]);
+  expect(landed).toHaveLength(2);
 
-  const rows = (await (await api.request("/api/tape?limit=400")).json()) as Record<string, unknown>[];
+  // A page size no other test asks for. The memo in front of the route is keyed on the query
+  // and lives for as long as the edge holds a page of the tape, which outlasts the whole run,
+  // so a limit shared with another test is that test's answer and not this one's.
+  const rows = (await (await api.request("/api/tape?limit=397")).json()) as Record<string, unknown>[];
   const first = rows.find((r) => r.tx === "0xcrowd-1")!;
   const second = rows.find((r) => r.tx === "0xcrowd-2")!;
   // Both are first buys for their wallets; only the later one had company in the hour before.
