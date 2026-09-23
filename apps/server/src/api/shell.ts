@@ -1,6 +1,6 @@
 import { escaped, LINKS, named, table, usd, when } from "./html.ts";
 import type { Bag, Discover, Fill, Trader } from "./types.ts";
-import { pageOf, SITE, traderPath, trimmed } from "./views.ts";
+import { HANDLE_LIST, pageOf, SITE, traderPath, trimmed } from "./views.ts";
 
 /**
  * The app is one file and every screen is served that file, so the head a crawler reads is
@@ -82,6 +82,18 @@ function rendered(pathname: string, all: unknown[]): string {
 }
 
 /**
+ * The roster, linked. The table above it is the twenty that moved the tape; this is every
+ * tracked wallet, so a trader's page is reachable by following links and not only by being
+ * read off the sitemap - which is the difference between a page a crawler queues and one it
+ * files under discovered and never fetches. Written from the roster rather than from the
+ * answer, so the list is whole on a screen whose rows did not arrive.
+ */
+const roster = (): string =>
+  `<nav class="roster"><h2>Every tracked trader</h2>${HANDLE_LIST.map(
+    (handle) => `<a href="${escaped(traderPath(handle))}">${escaped(handle)}</a>`,
+  ).join(" ")}</nav>`;
+
+/**
  * The head, and the rows where the app will draw them. `rows` is what SOURCE returned; without
  * it the head is still put right, because a page that says who it is matters more than a page
  * that has a table on it and no name.
@@ -96,10 +108,12 @@ export function dress(html: Response, pathname: string, rows?: unknown[]): Respo
       el.setAttribute(attribute, value);
     },
   });
+  const drawn = rows === undefined || rows.length === 0 ? "" : rendered(path, rows);
+  const listed = path === "/traders" ? roster() : "";
   const body =
-    rows === undefined || rows.length === 0
+    drawn === "" && listed === ""
       ? ""
-      : `<h1>${escaped(page.title)}</h1><p>${escaped(page.description)}</p>${rendered(path, rows)}${LINKS}`;
+      : `<h1>${escaped(page.title)}</h1><p>${escaped(page.description)}</p>${drawn}${listed}${LINKS}`;
   const rewriter = new HTMLRewriter()
     .on("title", {
       element(el: { setInnerContent(text: string): void }) {

@@ -65,6 +65,27 @@ test("a screen without JavaScript is the screen, not an empty div", async () => 
   expect(html).not.toContain("null");
 });
 
+test("the traders screen links every tracked wallet, not only the ones on it", async () => {
+  // Search Console reported all but two of these as discovered and not indexed for as long as
+  // the sitemap was the only thing that named them. A page reached by a link is a different
+  // class of page to one reached by a list.
+  const html = await served("/traders", [{ rank: 1, handle: HANDLE_LIST[0]!, fills: 1, tape_volume: 1, total: 1 }]);
+  for (const handle of HANDLE_LIST) expect(html).toContain(`href="${traderPath(handle)}"`);
+  expect(new Set(HANDLE_LIST).size).toBe(HANDLE_LIST.length);
+});
+
+test("the roster is there on a traders screen whose rows never arrived", async () => {
+  const html = await served("/traders", []);
+  expect(html).toContain(`href="${traderPath(HANDLE_LIST[0]!)}"`);
+  // Still no table, because there were no rows to put in one.
+  expect(html).not.toContain("<table>");
+});
+
+test("no other screen carries the roster", async () => {
+  for (const path of VIEW_PATHS.filter((p) => p !== "/traders"))
+    expect({ path, listed: (await served(path, [])).includes("roster") }).toEqual({ path, listed: false });
+});
+
 test("what a token calls itself cannot close a tag", async () => {
   const html = await served("/bags", [
     { token: "0xdead", symbol: '</td><script>alert("x")</script>', holders: 1, value: 1, pnl: null, first_buyer: null },
