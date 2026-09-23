@@ -5,6 +5,8 @@
 
 import { measure, meterRows } from "../../server/src/api/budget.ts";
 import { onTape, tail, toFill } from "../../server/src/api/fills.ts";
+import { announce as tellEngines } from "../../server/src/api/indexnow.ts";
+import { changed } from "../../server/src/api/routes.ts";
 import { configure, env as settings, wallets } from "../../server/src/config.ts";
 import {
   carryTransfers,
@@ -235,6 +237,14 @@ export function prune(): Promise<void> {
     );
   return Promise.resolve();
 }
+/** Tells the engines that take IndexNow which addresses changed since yesterday. Google is
+ *  not among them and reads the sitemap instead; everything else is one POST. */
+export async function announce(): Promise<void> {
+  const urls = changed();
+  const said = await tellEngines(urls);
+  if (said !== null) log.info(`told indexnow about ${urls.length} addresses, which answered ${said}`);
+}
+
 export const quotes = quoteBags;
 export const traders = maintain;
 export { booksInterval, traderInterval };

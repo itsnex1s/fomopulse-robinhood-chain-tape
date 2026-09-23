@@ -20,6 +20,7 @@ const TRADERS_COLD_MS = ms(limits.pace.tradersColdSeconds);
 const BOOKS_MS = ms(limits.pace.booksMinSeconds);
 const BOOKS_MAX_MS = ms(limits.pace.booksMaxSeconds);
 const PRUNE_MS = ms(limits.pace.pruneSeconds);
+const INDEXNOW_MS = ms(limits.pace.indexNowSeconds);
 /** How much of a pass may be spent before the sweep is left for the next one, and how long the
  *  whole pass may run: work that outlives the request that started it is cut off by the platform. */
 const BUDGET_MS = ms(limits.pace.passBudgetSeconds);
@@ -332,6 +333,9 @@ export class Tape extends DurableObject<Env> {
     // measured in days rather than in the seconds a pass has.
     if (Date.now() - now < BUDGET_MS && (await this.due("prune", PRUNE_MS, now)))
       await this.within("prune", until, () => app.prune());
+    // One POST a day, and the last thing the pass does: nothing the tape serves waits on it.
+    if (Date.now() - now < BUDGET_MS && (await this.due("indexnow", INDEXNOW_MS, now)))
+      await this.within("indexnow", until, () => app.announce());
     this.beat.step = "done";
     this.beat.took = Date.now() - now;
   }

@@ -110,7 +110,7 @@ There are no migrations: `db/schema.ts` is the whole story, and a database that 
 deleted and re-synced from the chain.
 
 **Outbound.** JSON-RPC to the chain over three clients — batched HTTP, unbatched keyed HTTP for
-logs, and an unbatched fallback endpoint. DexScreener for quotes and token names. fomo.family for
+logs, and an unbatched fallback endpoint. DexScreener for quotes and token names. IndexNow for the engines that take it, once a day. fomo.family for
 the leaderboard cards — handle, avatar, clan — behind a Privy bearer that renews itself against
 `auth.privy.io`. Nothing on the screens is a number fomo supplied. Every one of those is paced deliberately; read the comment before changing a batch
 size or an interval.
@@ -306,9 +306,19 @@ exports. A module with no exports listed is an entry point that runs on import.
                         A tracked trader's own page, written rather than drawn: their books over
                         the week and their last thirty fills. Not a fifth screen — the point is
                         one address per tracked wallet, which a live tape cannot be.
-    38e sitemap.ts      sitemap
+    38e sitemap.ts      sitemap addresses
                         The addresses worth fetching: the screens, the documents, and every
-                        trader this tape has seen trade. Written, so nothing drifts.
+                        trader this tape has seen trade. Written, so nothing drifts, and
+                        `addresses` is the same list as addresses rather than as XML, which is
+                        what indexnow.ts is given.
+    38f indexnow.ts     announce startAnnouncing INDEXNOW_KEY
+                        One POST telling Bing, Yandex, Seznam and Naver which addresses changed
+                        - they share an endpoint and pass a submission between themselves.
+                        Google does not take it and is told by the sitemap. The key is not a
+                        secret: it proves the host by being readable at /<key>.txt, which is a
+                        file in apps/web/public. Who is told is `changed` in routes.ts: the
+                        traders who traded in the last day and not the whole roster, because a
+                        submission is a claim that the address changed.
     39 ws.ts            websocket broadcast
                         Bun's pub/sub socket handlers.
     40 static.ts        site

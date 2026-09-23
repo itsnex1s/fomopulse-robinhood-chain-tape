@@ -14,6 +14,15 @@ const DOCUMENTS = ["/about"];
 const entry = (path: string, changes: string, priority: string): string =>
   `  <url>\n    <loc>${escaped(SITE + path)}</loc>\n    <changefreq>${changes}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
 
+/** The same addresses, as addresses. What is told to IndexNow and what is written in the
+ *  sitemap are one list, so the two can say different things only by being given different
+ *  traders - which is the point: the sitemap gets every one, the ping gets the ones that moved. */
+export const addresses = (handles: string[]): string[] => [
+  ...VIEW_PATHS.map((path) => SITE + path),
+  ...DOCUMENTS.map((path) => SITE + path),
+  ...handles.map((handle) => SITE + traderPath(handle)),
+];
+
 export function sitemap(handles: string[]): string {
   const lines = [
     ...VIEW_PATHS.map((path) => entry(path, "hourly", path === "/" ? "1.0" : "0.8")),

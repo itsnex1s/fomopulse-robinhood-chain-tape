@@ -33,6 +33,8 @@ export interface Limits {
      *  four minutes of not walking. */
     booksShare: number;
     pruneSeconds: number;
+    /** How often the engines that take IndexNow are told which addresses changed. */
+    indexNowSeconds: number;
     /** How much of one pass may be spent before the rest is left for the next, and how long
      *  the whole pass may run before the slot is given away. */
     passBudgetSeconds: number;

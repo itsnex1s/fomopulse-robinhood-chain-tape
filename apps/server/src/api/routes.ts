@@ -11,7 +11,7 @@ import { bagList, leaderboardState, ranking } from "../traders.ts";
 import { since, WINDOW_SECONDS } from "../window.ts";
 import { budget, measure, pressure, spend } from "./budget.ts";
 import { handleOf, onTape, toFill, walletOf } from "./fills.ts";
-import { sitemap } from "./sitemap.ts";
+import { addresses, sitemap } from "./sitemap.ts";
 import type { Overview, Profile, Status } from "./types.ts";
 
 /**
@@ -265,6 +265,18 @@ const everyAddress = memo(ms(limits.cache.edge.sitemap ?? 86_400), () =>
       .map((t) => t.handle),
   ),
 );
+
+/**
+ * The addresses to tell IndexNow about: the screens, the documents, and the traders this tape
+ * saw trade in the last day. Not the whole roster - a submission is a claim that the address
+ * changed, and a page for somebody who has not traded since yesterday has not.
+ */
+export const changed = (): string[] =>
+  addresses(
+    tradersFor(["24h", "300"].join("|"))
+      .filter((t) => t.fills > 0)
+      .map((t) => t.handle),
+  );
 
 /**
  * How long the edge in front of this may reuse an answer: the route's own lifetime from

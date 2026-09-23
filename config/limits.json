@@ -20,6 +20,7 @@
     "booksMaxSeconds": 3600,
     "booksShare": 240,
     "pruneSeconds": 21600,
+    "indexNowSeconds": 86400,
     "passBudgetSeconds": 20,
     "passSeconds": 45,
     "heldSeconds": 1800

@@ -7,6 +7,8 @@
  *   bun run ingest --poll S           re-read the chain every S seconds (default 12) instead of subscribing
  */
 import { onTape, toFill } from "./api/fills.ts";
+import { startAnnouncing } from "./api/indexnow.ts";
+import { changed } from "./api/routes.ts";
 import { site } from "./api/static.ts";
 import { broadcast, websocket } from "./api/ws.ts";
 import { env, wallets } from "./config.ts";
@@ -101,6 +103,8 @@ async function main(): Promise<void> {
   startBooks();
   // Only the card — handle, avatar, clan — comes from fomo; every number is our own.
   startTraders();
+  // Which addresses changed, for every engine that takes IndexNow. Google reads the sitemap.
+  startAnnouncing(changed);
 
   if (pollSecs !== undefined) await poll(emit, Number(pollSecs) || 12);
   else if (env.wsUrl) follow(env.wsUrl, emit);
