@@ -13,6 +13,10 @@ export const trimmed = (pathname: string): string => (pathname.length > 1 ? path
 
 export const isViewPath = (pathname: string): boolean => VIEW_PATHS.includes(trimmed(pathname));
 
+/** The not-found page under its own name. The assets would serve it there like any document,
+ *  with a 200, which is a page that says it does not exist while saying it does. */
+export const NOT_FOUND = "/404";
+
 /**
  * The one origin every absolute address on the page names. The same string is written into
  * public/robots.txt and public/sitemap.xml, which are files a crawler reads before any of

@@ -1,6 +1,6 @@
 /** What the process serves beside the API: a built file, a screen's own address, or a 404. */
 import { expect, test } from "bun:test";
-import { HANDLE_LIST, isViewPath, traderPath, VIEW_PATHS } from "../src/api/views.ts";
+import { HANDLE_LIST, isViewPath, NOT_FOUND, traderPath, VIEW_PATHS } from "../src/api/views.ts";
 import { api } from "./support/api.ts";
 
 test("every screen's address is one the app is served at", () => {
@@ -15,7 +15,7 @@ test("every screen's address is one the app is served at", () => {
 test("an address no screen answers to is a 404, not the app pretending it exists", async () => {
   // The shell is only served where the app has a screen; the built file may or may not be
   // there in a test run, so what is asserted is that these never come back as a page.
-  for (const path of ["/nowhere", "/missing.png", "/api/nothing-here"]) {
+  for (const path of ["/nowhere", "/missing.png", "/api/nothing-here", NOT_FOUND, `${NOT_FOUND}.html`]) {
     const res = await api.request(path);
     expect({ path, status: res.status }).toEqual({ path, status: 404 });
   }
@@ -34,6 +34,8 @@ test("the object's runtime is asked for every screen the assets cannot answer", 
     for (const form of path === "/" ? ["/"] : [path, `${path}/`])
       expect({ form, listed: first.includes(`"${form}"`) }).toEqual({ form, listed: true });
   }
+  // The not-found page is a document the assets hold, so only the Worker can say it is a 404.
+  expect(first.includes(`"${NOT_FOUND}"`)).toBe(true);
 });
 
 test("the API still answers first, whatever the fallback would do with the path", async () => {

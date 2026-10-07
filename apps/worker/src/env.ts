@@ -12,6 +12,9 @@ export interface Secrets {
    *  separated by commas. Unset means the tape answers anyone, which is what a clone of this
    *  repository should do; setting it is what closes /api/* and /ws. See cache.ts `admitted`. */
   API_KEYS?: string;
+  /** Signs the pass a screen hands its reader, which the app's own fetches must then carry for
+   *  Fetch Metadata to be believed. Unset, the headers alone are. See cache.ts `holdsPass`. */
+  PASS_KEY?: string;
 }
 
 export interface Env extends Secrets {

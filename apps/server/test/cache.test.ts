@@ -1,7 +1,18 @@
 /** The canonical query the edge files an answer under. Every value a reader can vary that this
  *  does not fold down is a cache miss they can ask for as often as they like. */
 import { expect, test } from "bun:test";
-import { admitted, canonical, named, nameless, ownPage, throttled, tooMany } from "../../worker/src/cache.ts";
+import {
+  admitted,
+  canonical,
+  holdsPass,
+  named,
+  nameless,
+  ownPage,
+  pass,
+  throttled,
+  tooMany,
+} from "../../worker/src/cache.ts";
+import { limits } from "../src/limits.ts";
 
 const key = (query: string) => canonical(new URL(`https://tape.test/api/tape${query}`)).toString();
 
@@ -85,8 +96,8 @@ test("a caller that will not say what it is does not reach the object", () => {
 const ask = (headers: Record<string, string> = {}, url = "https://tape.test/api/tape") =>
   new Request(url, { headers: { "cf-connecting-ip": "1.2.3.4", ...headers } });
 const KEYS = { API_KEYS: "research:sk_aaaaaaaaaaaa,tape-bot:sk_bbbbbbbbbbbb" };
-const seat = (headers?: Record<string, string>, env: { API_KEYS?: string } = KEYS) =>
-  admitted(ask(headers), env, "tape.test");
+const seat = (headers?: Record<string, string>, env: { API_KEYS?: string } = KEYS, passed = true) =>
+  admitted(ask(headers), env, "tape.test", passed);
 
 test("with no key issued the tape answers anyone, and counts them by address", () => {
   expect(seat({}, {})).toBe("ip:1.2.3.4");
@@ -131,4 +142,39 @@ test("a person who typed the address is not a program on a schedule", () => {
   expect(seat({})).toBeInstanceOf(Response);
   // And a header that says cross-site is believed over a referer that disagrees with it.
   expect(seat({ "sec-fetch-site": "cross-site", referer: "https://tape.test/" })).toBeInstanceOf(Response);
+});
+
+/** A pass as the browser hands it back: the name=value half of the Set-Cookie a screen sent. */
+const carried = (cookie: string | undefined) => ({ cookie: `theme=dark; ${cookie?.split(";")[0] ?? ""}` });
+const SIGNED = { PASS_KEY: "pk_test_cccccccccccc" };
+
+test("the page's headers without its pass are refused once a pass is required", () => {
+  // Any client can write Fetch Metadata; only one that loaded a screen holds a pass.
+  const refused = seat({ "sec-fetch-site": "same-origin" }, KEYS, false);
+  expect(refused).toBeInstanceOf(Response);
+  if (refused instanceof Response) expect(refused.status).toBe(401);
+  // A key is a key whatever the pass, and no keys issued is no door at all.
+  expect(seat({ authorization: "Bearer sk_aaaaaaaaaaaa" }, KEYS, false)).toBe("key:research");
+  expect(seat({}, {}, false)).toBe("ip:1.2.3.4");
+});
+
+test("a pass a screen issued is honoured, and an edited, foreign or lapsed one is not", async () => {
+  const now = Date.UTC(2026, 9, 7);
+  const cookie = await pass(SIGNED, now);
+  expect(cookie).toContain("HttpOnly");
+  expect(await holdsPass(ask(carried(cookie)), SIGNED, now)).toBe(true);
+  expect(await holdsPass(ask(carried(cookie)), SIGNED, now + (limits.cache.passDays - 1) * 86_400_000)).toBe(true);
+  expect(await holdsPass(ask(carried(cookie)), SIGNED, now + (limits.cache.passDays + 1) * 86_400_000)).toBe(false);
+  expect(await holdsPass(ask(carried(cookie)), { PASS_KEY: "pk_test_dddddddddddd" }, now)).toBe(false);
+  // The time is what is signed, so moving it forward to stretch the pass breaks the signature.
+  const [, value = ""] = cookie?.split(";")[0]?.split("=") ?? [];
+  const [at, mac] = value.split(".");
+  expect(await holdsPass(ask({ cookie: `pass=${Number(at) + 86_400}.${mac}` }), SIGNED, now)).toBe(false);
+  expect(await holdsPass(ask({ cookie: "pass=garbage" }), SIGNED, now)).toBe(false);
+  expect(await holdsPass(ask(), SIGNED, now)).toBe(false);
+});
+
+test("with no PASS_KEY nothing is issued and nothing is asked for", async () => {
+  expect(await pass({})).toBeUndefined();
+  expect(await holdsPass(ask(), {})).toBe(true);
 });

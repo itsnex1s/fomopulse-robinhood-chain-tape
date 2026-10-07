@@ -29,7 +29,8 @@
     "assets": "bun run scripts/assets.ts",
     "cf:dev": "bun run build && bun run --cwd apps/worker dev",
     "cf:deploy": "bun run build && bun run --cwd apps/worker deploy",
-    "enrich": "bun run scripts/enrich.ts"
+    "enrich": "bun run scripts/enrich.ts",
+    "humans": "bun run scripts/humans.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12"

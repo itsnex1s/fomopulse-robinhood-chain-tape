@@ -24,6 +24,7 @@
       "/api/*",
       "/ws",
       "/sitemap.xml",
+      "/404",
       "/trader/*",
       "/",
       "/traders",

@@ -4,8 +4,21 @@ import type { Bag, Discover, Fill, Overview, Status, Trader, Window } from "./ty
 /** The service the tracked handles and avatars come from, named once in config/fomo.json. */
 const FOMO = fomoConfig.site;
 
+/** A 401 to the page's own fetch is a pass that has lapsed, and loading a screen is what issues
+ *  a new one. At most once a minute, so a door that refuses the page outright is not a loop. */
+const renew = () => {
+  try {
+    if (Date.now() - Number(sessionStorage.getItem("renewed")) < 60_000) return;
+    sessionStorage.setItem("renewed", String(Date.now()));
+  } catch {
+    return;
+  }
+  location.reload();
+};
+
 const json = async <T>(url: string): Promise<T> => {
   const response = await fetch(url);
+  if (response.status === 401) renew();
   if (!response.ok) throw new Error(`${url} → ${response.status}`);
   return response.json() as Promise<T>;
 };

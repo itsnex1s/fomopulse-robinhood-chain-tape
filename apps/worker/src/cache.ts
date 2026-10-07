@@ -175,6 +175,57 @@ export const ownPage = (request: Request, host: string): boolean => {
 };
 
 /**
+ * What makes `ownPage` checkable rather than believed: a cookie a screen of this site hands
+ * its reader, signed with PASS_KEY. Fetch Metadata can be written by any client; a pass has to
+ * be fetched off a page first, and is good for `cache.passDays` from the last screen loaded.
+ */
+const PASS = "pass";
+const PASS_SECONDS = limits.cache.passDays * 86_400;
+
+let signedWith: string | undefined;
+let signingKey: Promise<CryptoKey> | undefined;
+async function signature(secret: string, issuedAt: number): Promise<string> {
+  if (secret !== signedWith || signingKey === undefined) {
+    signedWith = secret;
+    signingKey = crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+  }
+  const mac = await crypto.subtle.sign("HMAC", await signingKey, new TextEncoder().encode(String(issuedAt)));
+  return btoa(String.fromCharCode(...new Uint8Array(mac)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/** The Set-Cookie a screen is served with, or nothing where no PASS_KEY has been set. */
+export async function pass(env: { PASS_KEY?: string }, now = Date.now()): Promise<string | undefined> {
+  if (!env.PASS_KEY) return undefined;
+  const at = Math.floor(now / 1000);
+  return `${PASS}=${at}.${await signature(env.PASS_KEY, at)}; Path=/; Max-Age=${PASS_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/** Whether this request carries a pass this deployment issued and that has not lapsed. With no
+ *  PASS_KEY there is nothing to carry, and Fetch Metadata alone is believed as before. */
+export async function holdsPass(request: Request, env: { PASS_KEY?: string }, now = Date.now()): Promise<boolean> {
+  if (!env.PASS_KEY) return true;
+  const cookies = (request.headers.get("cookie") ?? "").split(";").map((part) => part.trim());
+  const [at = "", mac = ""] = (cookies.find((part) => part.startsWith(`${PASS}=`))?.slice(PASS.length + 1) ?? "").split(
+    ".",
+  );
+  const issuedAt = Number(at);
+  if (!/^\d+$/.test(at) || mac === "") return false;
+  const age = Math.floor(now / 1000) - issuedAt;
+  // A minute of the other way is clocks between colos, not a pass from the future.
+  if (age > PASS_SECONDS || age < -60) return false;
+  return sameSecret(mac, await signature(env.PASS_KEY, issuedAt));
+}
+
+/**
  * Either what this request is counted as, or the answer it gets instead of the object.
  *
  * A deployment that has issued no keys has no door: the tape answers anyone, which is what a
@@ -185,7 +236,12 @@ export const ownPage = (request: Request, host: string): boolean => {
  * What comes back is the key the ceiling is counted against, so a client with a key has a
  * minute of its own and does not share one with whatever else is behind its address.
  */
-export function admitted(request: Request, env: { API_KEYS?: string }, host: string): string | Response {
+export function admitted(
+  request: Request,
+  env: { API_KEYS?: string },
+  host: string,
+  passed: boolean,
+): string | Response {
   const keys = issued(env.API_KEYS ?? "");
   const bearer = /^Bearer\s+(.+)$/i.exec((request.headers.get("authorization") ?? "").trim())?.[1]?.trim() ?? "";
   const ip = request.headers.get("cf-connecting-ip") ?? "anon";
@@ -193,7 +249,8 @@ export function admitted(request: Request, env: { API_KEYS?: string }, host: str
     const client = keys.find((held) => sameSecret(bearer, held.secret));
     return client === undefined ? refused("that key is not one of ours") : `key:${client.name}`;
   }
-  if (keys.length === 0 || ownPage(request, host)) return `ip:${ip}`;
+  if (keys.length === 0) return `ip:${ip}`;
+  if (ownPage(request, host)) return passed ? `ip:${ip}` : refused("load the page again");
   return refused("this endpoint needs a key");
 }
 

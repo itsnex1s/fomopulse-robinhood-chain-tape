@@ -64,6 +64,8 @@ export interface Limits {
     limitSteps: number[];
     /** Times one address may reach the object in a minute; the platform enforces it per colo. */
     objectRequestsPerMinute: number;
+    /** Days a pass from a screen of the site is good for; see apps/worker/src/cache.ts. */
+    passDays: number;
     /** Addresses the site does not answer at all, as CIDR or a bare address. */
     blocked: string[];
   };
@@ -124,6 +126,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
   if (given.cache.cursorSeconds <= 0) invalid("cache.cursorSeconds is not a positive number of seconds");
   if (!Number.isInteger(given.cache.objectRequestsPerMinute) || given.cache.objectRequestsPerMinute <= 0)
     invalid("cache.objectRequestsPerMinute is not a whole number of requests");
+  if (!(given.cache.passDays > 0)) invalid("cache.passDays is not a positive number of days");
   // A malformed entry here is the dangerous kind of mistake: it reads as a rule and matches
   // nothing, so the address it was meant to stop goes on being answered and nobody is told.
   for (const [i, entry] of (given.cache.blocked ?? []).entries()) {
@@ -155,6 +158,7 @@ export function validateLimits(given: typeof limitsJson): Limits {
       cursorSeconds: given.cache.cursorSeconds,
       limitSteps: steps,
       objectRequestsPerMinute: given.cache.objectRequestsPerMinute,
+      passDays: given.cache.passDays,
       blocked: given.cache.blocked ?? [],
     },
     budget: given.budget,

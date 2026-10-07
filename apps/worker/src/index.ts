@@ -7,9 +7,20 @@
 import { later, traderDocument } from "../../server/src/api/profile.ts";
 import { dress, SOURCE, TRADER_FILLS, TRADER_WINDOW } from "../../server/src/api/shell.ts";
 import type { Profile } from "../../server/src/api/types.ts";
-import { isViewPath, traderOf, trimmed } from "../../server/src/api/views.ts";
+import { isViewPath, NOT_FOUND, traderOf, trimmed } from "../../server/src/api/views.ts";
 import { limits } from "../../server/src/limits.ts";
-import { admitted, barred, barredResponse, canonical, named, nameless, throttled, tooMany } from "./cache.ts";
+import {
+  admitted,
+  barred,
+  barredResponse,
+  canonical,
+  holdsPass,
+  named,
+  nameless,
+  pass,
+  throttled,
+  tooMany,
+} from "./cache.ts";
 import type { Env } from "./env.ts";
 
 export { Tape } from "./tape.ts";
@@ -135,7 +146,7 @@ export default {
     // and what it asks for is the one claim an HTTP request can carry that is checkable. The
     // seat it hands back is what the ceiling is then counted against. See cache.ts `admitted`.
     if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) && !named(request)) return nameless();
-    const seat = admitted(request, env, url.host);
+    const seat = admitted(request, env, url.host, await holdsPass(request, env));
     if (seat instanceof Response) {
       // A page the site draws is served from the assets whatever happens here; only the object
       // is behind the door. Everything below this line has a seat.
@@ -152,6 +163,10 @@ export default {
       return answer(new Request(at.toString(), { headers: request.headers }), env, ctx, at, spent);
     }
     if (!url.pathname.startsWith("/api/")) {
+      if (url.pathname === NOT_FOUND) {
+        const page = await env.ASSETS.fetch(request);
+        return new Response(page.body, { status: 404, headers: page.headers });
+      }
       const handle = traderOf(url.pathname);
       if (handle !== undefined) return profile(handle, request, env, ctx, url, spent);
       // The app draws four screens and the assets hold one page, so a screen's own address
@@ -159,7 +174,13 @@ export default {
       // assets do not have stays a 404.
       if (!isViewPath(url.pathname)) return env.ASSETS.fetch(request);
       const shell = await env.ASSETS.fetch(new Request(new URL("/", url).toString(), request));
-      return dress(shell, url.pathname, await drawn(request, env, ctx, url, spent));
+      const page = dress(shell, url.pathname, await drawn(request, env, ctx, url, spent));
+      // Every screen renews the reader's pass, which is what their tab's fetches show the door.
+      const cookie = await pass(env);
+      if (cookie === undefined) return page;
+      const passed = new Response(page.body, page);
+      passed.headers.append("set-cookie", cookie);
+      return passed;
     }
 
     const response = await answer(request, env, ctx, url, spent);

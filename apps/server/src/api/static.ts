@@ -8,7 +8,7 @@ import { later, traderDocument } from "./profile.ts";
 import { api } from "./routes.ts";
 import { dress, SOURCE, TRADER_FILLS, TRADER_WINDOW } from "./shell.ts";
 import type { Profile } from "./types.ts";
-import { isViewPath, traderOf, trimmed } from "./views.ts";
+import { isViewPath, NOT_FOUND, traderOf, trimmed } from "./views.ts";
 
 /** `fileURLToPath`, not `.pathname`: on Windows the latter is `/D:/…`, which no file API opens. */
 const dist = fileURLToPath(new URL("../../../web/dist/", import.meta.url));
@@ -43,6 +43,12 @@ async function spa(c: Context): Promise<Response> {
   // Parsed, so `..` is resolved away before it reaches a file API; what is left encoded
   // stays encoded, and no directory is named twice.
   const path = new URL(c.req.url).pathname;
+  if (trimmed(path) === NOT_FOUND || path === `${NOT_FOUND}.html`) {
+    const page = asset(`${NOT_FOUND}.html`);
+    return (await page.exists())
+      ? new Response(page, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } })
+      : c.text("not found", 404);
+  }
   const file = asset(path);
   if (await file.exists()) return new Response(file);
   // A document is linked without its extension and Cloudflare serves it that way from the
